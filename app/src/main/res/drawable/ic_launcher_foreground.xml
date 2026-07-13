@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="72dp"
+        android:height="72dp"
+        android:gravity="center">
+        <vector
+            android:width="72dp"
+            android:height="72dp"
+            android:viewportWidth="64"
+            android:viewportHeight="64">
+            
+            <!-- Book Emblem fanning pages (Solid Maroon Brand Color) -->
+            <!-- Bottom fanning pages -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M32,34 C24,33 16,28 8,32 L8,10 C16,6 24,11 32,12 C40,11 48,6 56,10 L56,32 C48,28 40,33 32,34 Z" />
+            
+            <!-- Middle fanning pages -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M32,31 C25,30 18,26 11,29 L11,7 C18,3 25,8 32,9 C39,8 46,3 53,7 L53,29 C46,26 39,30 32,31 Z" />
+                
+            <!-- Top fanning pages -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M32,28 C26,27 20,24 14,26 L14,4 C20,1 26,5 32,6 C38,5 44,1 50,4 L50,26 C44,24 38,27 32,28 Z" />
+
+            <!-- Center spine (Clean White separation matching background transition) -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M31.2,4 L32.8,4 L32.8,31 L31.2,31 Z" />
+
+            <!-- "INSYR" Wordmark -->
+            <!-- I -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M7,38 L11,35 L11,49 L7,49 Z" />
+            
+            <!-- N -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M14,35 L17.5,35 L21.5,43.5 L21.5,35 L24.5,35 L24.5,49 L21,49 L17,40.5 L17,49 L14,49 Z" />
+            
+            <!-- S -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M26,35 L34,35 L34,39 L30,39 L30,41 L34,41 L34,49 L26,49 L26,45 L30,45 L30,43 L26,43 Z" />
+            
+            <!-- Y -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M36,35 L39,35 L42,41.5 L45,35 L48,35 L43.5,43.5 L43.5,49 L40.5,49 L40.5,43.5 Z" />
+            
+            <!-- R -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M50,35 L57,35 C59,35 60,36 60,38 L60,39 C60,41 59,42 57,42.5 L60,49 L56.5,49 L54,43 L53,43 L53,49 L50,49 Z M53,38 L55.5,38 C56.5,38 57,38.2 57,39 C57,39.8 56.5,40 L55.5,40 L53,40 Z" />
+
+            <!-- "LEARNING" Wordmark -->
+            <!-- L -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M9,53 L11.5,53 L11.5,57 L14,57 L14,59 L9,59 Z" />
+            
+            <!-- E -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M15,53 L20,53 L20,55 L17.5,55 L17.5,56 L19.5,56 L19.5,57.5 L17.5,57.5 L20,57.5 L20,59 L15,59 Z" />
+            
+            <!-- A -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M21,59 L23,53 L25,53 L27,59 L24.5,59 L24.2,57.2 L21.8,57.2 L21.5,59 Z M22.2,55.5 L23.8,55.5 L23,53.5 Z" />
+            
+            <!-- R -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M28,53 L32,53 C33,53 33.5,53.5 33.5,54.5 L33.5,55.5 C33.5,56.2 33,56.5 32,56.8 L33.5,59 L31,59 L29.8,56.8 L29.8,59 L28,59 Z M29.8,54.5 L29.8,55.5 L31.5,55.5 L31.5,54.5 Z" />
+            
+            <!-- N -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M34.5,53 L36.5,53 L38.5,57 L38.5,53 L40.5,53 L40.5,59 L38.5,59 L36.5,55 L36.5,59 L34.5,59 Z" />
+            
+            <!-- I -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M42,53 L44,53 L44,59 L42,59 Z" />
+            
+            <!-- N -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M45.5,53 L47.5,53 L49.5,57 L49.5,53 L51.5,53 L51.5,59 L49.5,59 L47.5,55 L47.5,59 L45.5,59 Z" />
+            
+            <!-- G -->
+            <path
+                android:fillColor="#801A24"
+                android:pathData="M52.5,53 L56.5,53 L56.5,54.5 L54.5,54.5 L54.5,57.5 L56.5,57.5 L56.5,56 L55,56 L55,55 L58,55 L58,59 L52.5,59 Z" />
+
+        </vector>
+    </item>
+</layer-list>

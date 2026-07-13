@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Check if the current user is an admin by email
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'admin@insyrlearning.com';
+    }
+
+    // Get the current user's stream field
+    function getUserStream() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.stream;
+    }
+
+    // Check if user has access to content based on stream
+    function hasStreamAccess(resourceData) {
+      return request.auth != null && (
+        isAdmin() || 
+        resourceData.stream == getUserStream() || 
+        resourceData.stream == 'All'
+      );
+    }
+
+    // users collection
+    match /users/{userId} {
+      allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+
+    // videos collection
+    match /videos/{videoId} {
+      allow read: if hasStreamAccess(resource.data);
+      allow write: if isAdmin();
+    }
+
+    // materials collection
+    match /materials/{materialId} {
+      allow read: if hasStreamAccess(resource.data);
+      allow write: if isAdmin();
+    }
+
+    // mockTests collection
+    match /mockTests/{mockTestId} {
+      allow read: if hasStreamAccess(resource.data);
+      allow write: if isAdmin();
+    }
+
+    // attempts collection
+    match /attempts/{attemptId} {
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // feedback collection
+    match /feedback/{feedbackId} {
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1034645319814",
+    "project_id": "insyr-learning-app",
+    "storage_bucket": "insyr-learning-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1034645319814:android:a649b0c1d29ffd8b736107",
+        "android_client_info": {
+          "package_name": "com.insyrlearning.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1034645319814-v38l3a4c17c3ijjfc2pvebkgeapabkc4.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.insyrlearning.app",
+            "certificate_hash": "5dd6007db23b10b08977092bb0681270c2050536"
+          }
+        },
+        {
+          "client_id": "1034645319814-7i981at8un2llciid5iqjnfsol2beh9v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAr8SlkLpJUAxywJ8yckk9r4V6Bi_PSz3c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1034645319814-7i981at8un2llciid5iqjnfsol2beh9v.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

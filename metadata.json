@@ -1,0 +1,6 @@
+{
+  "name": "Insyr Learning",
+  "description": "A CUET/NCET exam-preparation platform with admin management and custom student test pathways.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
