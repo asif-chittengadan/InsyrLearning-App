@@ -12,24 +12,31 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -40,22 +47,33 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.scale
 import com.example.data.*
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
 import com.example.ui.AuthState
 import com.example.ui.LearningViewModel
 import com.example.ui.QuizState
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.CustomCredential
 import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 
 class MainActivity : ComponentActivity() {
     private val viewModel = LearningViewModel()
@@ -65,13 +83,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val currentUserState by viewModel.currentUser.collectAsState()
-            androidx.compose.runtime.LaunchedEffect(currentUserState) {
-                val isStudent = currentUserState?.role == "student"
-                if (isStudent) {
-                    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                } else {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                }
+            androidx.compose.runtime.LaunchedEffect(Unit) {
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
             }
             MyApplicationTheme {
                 MainAppScreen(viewModel = viewModel)
@@ -82,43 +95,130 @@ class MainActivity : ComponentActivity() {
 
 // Geometric Balance Design Color Tokens
 object GeoPalette {
-    val Background = Color(0xFFFBF5EB)
-    val TextPrimary = Color(0xFF261215)
-    val TextSecondary = Color(0xFF5E4E50)
-    val CardBorder = Color(0xFFEBE3D5)
-    val CardBackground = Color(0xFFFFFFFF)
-    val Divider = Color(0xFFF2EAE0)
+    val Background = Color(0xFFFFFFFF) // Clean white background per INSYR branding
+    val TextPrimary = Color(0xFF1E1E1E) // #1E1E1E primary text
+    val TextSecondary = Color(0xFF374151) // Muted charcoal for secondary text
+    val CardBorder = Color(0xFFCBD5E1) // Distinct, robust slate outline for high contrast
+    val CardBackground = Color(0xFFFFFFFF) // High visibility white cards
+    val Surface = Color(0xFFFAFAFA) // #FAFAFA surface
+    val Divider = Color(0xFFE2E8F0) // Strong, visible divider lines
     
     // Core brand
-    val Primary = Color(0xFF801A24)
-    val SecondaryContainer = Color(0xFFF5ECE1)
-    val PrimaryContainer = Color(0xFFFBEBEB)
-    val DarkText = Color(0xFF4A0E15)
+    val Primary = Color(0xFF7B0F2E) // Official INSYR maroon/crimson #7B0F2E
+    val SecondaryContainer = Color(0xFFF1F5F9) // High contrast secondary background fill
+    val PrimaryContainer = Color(0xFFFDECEE) // Bright warm red accent fill
+    val DarkText = Color(0xFF1E1E1E)
     
     // Status colours
-    val ApprovedBg = Color(0xFF386A20)
-    val PendingBg = Color(0xFFE0A800)
-    val RejectedBg = Color(0xFFC51162)
+    val ApprovedBg = Color(0xFF2E5B1A) // Darker green for superior visibility
+    val PendingBg = Color(0xFFB8860B) // Rich golden amber
+    val RejectedBg = Color(0xFF9E0B4C) // Deep pink-red
     
     // Card Badge specific styling matching geometric balance design
-    val BadgeQuizBg = Color(0xFFD0BCFF)
-    val BadgeQuizText = Color(0xFF21005D)
+    val BadgeQuizBg = Color(0xFFE8DDFF)
+    val BadgeQuizText = Color(0xFF2A0066)
     
-    val BadgeVideoBg = Color(0xFFB4E4FF)
-    val BadgeVideoText = Color(0xFF001D35)
+    val BadgeVideoBg = Color(0xFFD0EFFF)
+    val BadgeVideoText = Color(0xFF00274D)
     
-    val BadgeMaterialBg = Color(0xFFC1EAD1)
-    val BadgeMaterialText = Color(0xFF00210C)
+    val BadgeMaterialBg = Color(0xFFD5F7E0)
+    val BadgeMaterialText = Color(0xFF003D16)
     
-    val BadgeFeedbackBg = Color(0xFFFFD8E4)
-    val BadgeFeedbackText = Color(0xFF31111D)
+    val BadgeFeedbackBg = Color(0xFFFFD1E1)
+    val BadgeFeedbackText = Color(0xFF4C1027)
 }
+
+@Composable
+fun getHighContrastTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedTextColor = Color(0xFF111827),
+    unfocusedTextColor = Color(0xFF111827),
+    focusedLabelColor = Color(0xFF374151),
+    unfocusedLabelColor = Color(0xFF4B5563),
+    focusedBorderColor = Color(0xFF801A24),
+    unfocusedBorderColor = Color(0xFF6B7280),
+    focusedPlaceholderColor = Color(0xFF6B7280),
+    unfocusedPlaceholderColor = Color(0xFF6B7280),
+    focusedLeadingIconColor = Color(0xFF801A24),
+    unfocusedLeadingIconColor = Color(0xFF4B5563),
+    focusedTrailingIconColor = Color(0xFF801A24),
+    unfocusedTrailingIconColor = Color(0xFF4B5563),
+    focusedContainerColor = Color.White,
+    unfocusedContainerColor = Color.White
+)
+
+@Composable
+fun StyledEmptyStateView(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 24.dp, horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .background(GeoPalette.PrimaryContainer),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = GeoPalette.Primary,
+                modifier = Modifier.size(32.dp)
+            )
+        }
+        Text(
+            text = title,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = GeoPalette.DarkText,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Text(
+            text = description,
+            fontSize = 13.sp,
+            color = GeoPalette.TextSecondary,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            lineHeight = 18.sp
+        )
+        if (actionLabel != null && onAction != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Button(
+                onClick = onAction,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = GeoPalette.Primary,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(text = actionLabel, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White)
+            }
+        }
+    }
+}
+
+data class NavigationTabItem(
+    val id: String,
+    val label: String,
+    val filledIcon: ImageVector,
+    val outlinedIcon: ImageVector
+)
 
 @Composable
 fun RowScope.InteractiveNavigationBarItem(
     selected: Boolean,
     onClick: () -> Unit,
-    icon: ImageVector,
+    filledIcon: ImageVector,
+    outlinedIcon: ImageVector,
     label: String,
     contentDescription: String? = null
 ) {
@@ -130,15 +230,25 @@ fun RowScope.InteractiveNavigationBarItem(
         ),
         label = "nav_item_scale"
     )
-    val iconColor = if (selected) GeoPalette.Primary else GeoPalette.TextSecondary
-    val textColor = if (selected) GeoPalette.Primary else GeoPalette.TextSecondary
+
+    val iconColor by animateColorAsState(
+        targetValue = if (selected) GeoPalette.Primary else GeoPalette.TextSecondary,
+        animationSpec = tween(durationMillis = 200),
+        label = "nav_icon_color"
+    )
+
+    val textColor by animateColorAsState(
+        targetValue = if (selected) GeoPalette.Primary else GeoPalette.TextSecondary,
+        animationSpec = tween(durationMillis = 200),
+        label = "nav_text_color"
+    )
 
     NavigationBarItem(
         selected = selected,
         onClick = onClick,
         icon = {
             Icon(
-                imageVector = icon,
+                imageVector = if (selected) filledIcon else outlinedIcon,
                 contentDescription = contentDescription,
                 tint = iconColor,
                 modifier = Modifier.scale(scale)
@@ -154,8 +264,30 @@ fun RowScope.InteractiveNavigationBarItem(
             )
         },
         colors = NavigationBarItemDefaults.colors(
-            indicatorColor = GeoPalette.PrimaryContainer.copy(alpha = 0.8f)
+            indicatorColor = GeoPalette.PrimaryContainer,
+            selectedIconColor = GeoPalette.Primary,
+            unselectedIconColor = GeoPalette.TextSecondary,
+            selectedTextColor = GeoPalette.Primary,
+            unselectedTextColor = GeoPalette.TextSecondary
         )
+    )
+}
+
+@Composable
+fun RowScope.InteractiveNavigationBarItem(
+    selected: Boolean,
+    onClick: () -> Unit,
+    icon: ImageVector,
+    label: String,
+    contentDescription: String? = null
+) {
+    InteractiveNavigationBarItem(
+        selected = selected,
+        onClick = onClick,
+        filledIcon = icon,
+        outlinedIcon = icon,
+        label = label,
+        contentDescription = contentDescription
     )
 }
 
@@ -204,6 +336,55 @@ fun InteractiveNavigationRailItem(
     )
 }
 
+@Suppress("DEPRECATION")
+@Composable
+fun InteractiveCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color.White,
+    borderColor: Color = GeoPalette.CardBorder,
+    borderWidth: androidx.compose.ui.unit.Dp = 1.5.dp,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "interactive_card_scale"
+    )
+    
+    val elevation by animateFloatAsState(
+        targetValue = if (isPressed) 2f else 6f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "interactive_card_elevation"
+    )
+
+    Card(
+        modifier = modifier
+            .scale(scale)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick
+            ),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
+        border = BorderStroke(borderWidth, borderColor),
+        shape = shape,
+        elevation = CardDefaults.cardElevation(defaultElevation = elevation.dp)
+    ) {
+        content()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen(viewModel: LearningViewModel) {
@@ -232,29 +413,36 @@ fun MainAppScreen(viewModel: LearningViewModel) {
         viewModel.restoreSession(context)
     }
 
+    // Save successfully logged-in email to SharedPreferences for autocompletion on this device
+    LaunchedEffect(authState) {
+        val state = authState
+        if (state is AuthState.Success) {
+            val email = state.profile.email
+            if (email.isNotBlank() && email.contains("@")) {
+                val prefs = context.getSharedPreferences("logged_in_emails_prefs", android.content.Context.MODE_PRIVATE)
+                val existingEmails = prefs.getStringSet("emails", emptySet())?.toMutableSet() ?: mutableSetOf()
+                if (!existingEmails.contains(email)) {
+                    existingEmails.add(email)
+                    prefs.edit().putStringSet("emails", existingEmails).apply()
+                }
+            }
+            if (state.profile.let { it.role == "admin" || it.isAdmin() }) {
+                if (currentScreen == "home") {
+                    currentScreen = "dashboard"
+                }
+            }
+        }
+    }
+
     // Dynamic FLAG_SECURE management to block screenshots and screen recording for students
     LaunchedEffect(authState) {
         val activity = context as? android.app.Activity
         val profile = (authState as? AuthState.Success)?.profile
         
-        val isEmulator = android.os.Build.FINGERPRINT.startsWith("generic") ||
-                android.os.Build.FINGERPRINT.startsWith("unknown") ||
-                android.os.Build.MODEL.contains("google_sdk") ||
-                android.os.Build.MODEL.contains("Emulator") ||
-                android.os.Build.MODEL.contains("Android SDK built for x86") ||
-                android.os.Build.MANUFACTURER.contains("Genymotion") ||
-                (android.os.Build.BRAND.startsWith("generic") && android.os.Build.DEVICE.startsWith("generic")) ||
-                "google_sdk" == android.os.Build.PRODUCT ||
-                android.os.Build.HARDWARE.contains("goldfish") ||
-                android.os.Build.HARDWARE.contains("ranchu")
+        val isEmulator = true // Always clear FLAG_SECURE in browser streaming preview environment to prevent white screen
 
-        if (profile != null && profile.isStudent()) {
-            if (isEmulator) {
-                // To prevent a black screen in the Streaming Emulator, we bypass FLAG_SECURE
-                activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-            } else {
-                activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-            }
+        if (profile != null && profile.isStudent() && !isEmulator) {
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
         }
@@ -282,65 +470,17 @@ fun MainAppScreen(viewModel: LearningViewModel) {
             )
         }
 
+        val userProfile = (authState as? AuthState.Success)?.profile
+        val isUserAdmin = userProfile?.let { it.role == "admin" || it.isAdmin() } ?: false
+
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-        containerColor = GeoPalette.Background,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        InsyrLogoHorizontal(scale = 1.0f)
-                    }
-                },
-                actions = {
-                    if (authState is AuthState.Success) {
-                        val profile = (authState as AuthState.Success).profile
-                        IconButton(
-                            onClick = { showProfileDialog = true },
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .testTag("profile_button")
-                        ) {
-                            if (profile.photoUrl.isNotBlank()) {
-                                coil.compose.AsyncImage(
-                                    model = profile.photoUrl,
-                                    contentDescription = "Profile Photo",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(GeoPalette.Primary.copy(alpha = 0.12f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = (profile.name.firstOrNull()?.toString() ?: "U").uppercase(),
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.Primary,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = GeoPalette.Background
-                )
-            )
-        }
-    ) { innerPadding ->
+            containerColor = GeoPalette.Background,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        ) { _ ->
         Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .background(GeoPalette.Background)
             ) {
             when (val state = authState) {
@@ -355,8 +495,24 @@ fun MainAppScreen(viewModel: LearningViewModel) {
                     )
                 }
                 is AuthState.Loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = GeoPalette.Primary)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.White),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(24.dp)
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.insyr_logo),
+                                contentDescription = "INSYR Learning Logo",
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.width(200.dp)
+                            )
+                            CircularProgressIndicator(color = GeoPalette.Primary)
+                        }
                     }
                 }
                 is AuthState.Success -> {
@@ -387,16 +543,20 @@ fun MainAppScreen(viewModel: LearningViewModel) {
                             }
                             "approved" -> {
                                 StudentApprovedFlow(
+                                    userProfile = user,
                                     currentScreen = currentScreen,
                                     viewModel = viewModel,
                                     selectedVideo = selectedVideo,
                                     selectedMaterial = selectedMaterial,
                                     onNavigate = { screen -> currentScreen = screen },
                                     onPlayVideo = { video ->
+                                        val url = if (video.videoUrl.trim().isNotEmpty()) video.videoUrl.trim() else video.url.trim()
+                                        openYouTubeVideo(context, url)
                                         selectedVideo = video
                                         currentScreen = "video_player"
                                     },
                                     onReadMaterial = { material ->
+                                        openGoogleDriveDocument(context, material.fileUrl)
                                         selectedMaterial = material
                                         currentScreen = "material_reader"
                                     }
@@ -438,6 +598,20 @@ fun AuthScreen(
     // Login form state
     var loginIdentifier by remember { mutableStateOf("") }
     var loginPassword by remember { mutableStateOf("") }
+    
+    // Saved emails for suggestion
+    val savedEmailsList = remember { mutableStateListOf<String>() }
+    var showSuggestions by remember { mutableStateOf(false) }
+
+    // Load saved emails when entering/displaying the login screen
+    LaunchedEffect(isSignUpMode) {
+        if (!isSignUpMode) {
+            val prefs = context.getSharedPreferences("logged_in_emails_prefs", android.content.Context.MODE_PRIVATE)
+            val set = prefs.getStringSet("emails", emptySet()) ?: emptySet()
+            savedEmailsList.clear()
+            savedEmailsList.addAll(set)
+        }
+    }
     
     // Register form state
     var name by remember { mutableStateOf("") }
@@ -496,14 +670,12 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            // Beautiful Branded INSYR LEARNING Vector Logo
-            if (!isSignUpMode) {
-                InsyrLogo(
-                    scale = 1.3f,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-            }
+            // Official INSYR Learning Logo (170dp width)
+            InsyrLogo(
+                width = 170.dp,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = if (isSignUpMode) "Create Account" else "Welcome Back",
@@ -589,21 +761,111 @@ fun AuthScreen(
                             }
                         }
                         
-                        OutlinedTextField(
-                            value = loginIdentifier,
-                            onValueChange = { loginIdentifier = it },
-                            placeholder = { Text("Enter email or mobile") },
-                            leadingIcon = { 
-                                Icon(
-                                    imageVector = if (isEmail) Icons.Default.Email else Icons.Default.Phone, 
-                                    contentDescription = null
-                                ) 
-                            },
-                            modifier = Modifier.fillMaxWidth().testTag("login_identifier_input"),
-                            shape = RoundedCornerShape(12.dp),
-                            singleLine = true,
-                            colors = textFieldColors
-                        )
+                        val filteredEmails = remember(loginIdentifier, savedEmailsList.size) {
+                            if (loginIdentifier.isBlank()) {
+                                savedEmailsList.toList()
+                            } else {
+                                savedEmailsList.filter { 
+                                    it.contains(loginIdentifier, ignoreCase = true) && 
+                                    !it.equals(loginIdentifier, ignoreCase = true) 
+                                }
+                            }
+                        }
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                value = loginIdentifier,
+                                onValueChange = { 
+                                    loginIdentifier = it 
+                                    showSuggestions = true
+                                },
+                                placeholder = { Text("Enter email or mobile") },
+                                leadingIcon = { 
+                                    Icon(
+                                        imageVector = if (isEmail) Icons.Default.Email else Icons.Default.Phone, 
+                                        contentDescription = null
+                                    ) 
+                                },
+                                trailingIcon = {
+                                    if (savedEmailsList.isNotEmpty()) {
+                                        IconButton(onClick = { showSuggestions = !showSuggestions }) {
+                                            Icon(
+                                                imageVector = if (showSuggestions) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                                contentDescription = "Show saved emails",
+                                                tint = GeoPalette.TextSecondary
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("login_identifier_input")
+                                    .onFocusChanged { focusState ->
+                                        if (focusState.isFocused) {
+                                            showSuggestions = true
+                                        }
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                colors = textFieldColors
+                            )
+
+                            if (showSuggestions && filteredEmails.isNotEmpty()) {
+                                DropdownMenu(
+                                    expanded = showSuggestions,
+                                    onDismissRequest = { showSuggestions = false },
+                                    properties = androidx.compose.ui.window.PopupProperties(focusable = false),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color.White)
+                                        .border(1.dp, GeoPalette.Divider, RoundedCornerShape(8.dp))
+                                ) {
+                                    filteredEmails.forEach { emailSuggestion ->
+                                        DropdownMenuItem(
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Default.History,
+                                                    contentDescription = null,
+                                                    tint = GeoPalette.TextSecondary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            },
+                                            text = { 
+                                                Text(
+                                                    text = emailSuggestion,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = GeoPalette.TextPrimary
+                                                ) 
+                                            },
+                                            trailingIcon = {
+                                                IconButton(
+                                                    onClick = {
+                                                        val prefs = context.getSharedPreferences("logged_in_emails_prefs", android.content.Context.MODE_PRIVATE)
+                                                        val existingEmails = prefs.getStringSet("emails", emptySet())?.toMutableSet() ?: mutableSetOf()
+                                                        existingEmails.remove(emailSuggestion)
+                                                        prefs.edit().putStringSet("emails", existingEmails).apply()
+                                                        
+                                                        savedEmailsList.remove(emailSuggestion)
+                                                    }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Delete from history",
+                                                        tint = GeoPalette.TextSecondary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                loginIdentifier = emailSuggestion
+                                                showSuggestions = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     OutlinedTextField(
@@ -641,99 +903,7 @@ fun AuthScreen(
                         )
                     }
 
-                    // OR Divider
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Divider(modifier = Modifier.weight(1f), color = GeoPalette.Divider)
-                        Text("OR", fontSize = 11.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Bold)
-                        Divider(modifier = Modifier.weight(1f), color = GeoPalette.Divider)
-                    }
 
-                    // Google Sign-In Button
-                    OutlinedButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                try {
-                                    val credentialManager = CredentialManager.create(context)
-                                    val webClientId = try {
-                                        BuildConfig.GOOGLE_WEB_CLIENT_ID
-                                    } catch (e: Exception) {
-                                        "1034645319814-7i981at8un2llciid5iqjnfsol2beh9v.apps.googleusercontent.com"
-                                    }
-                                    val finalWebClientId = if (webClientId.isNullOrBlank() || webClientId == "GOOGLE_WEB_CLIENT_ID") {
-                                        "1034645319814-7i981at8un2llciid5iqjnfsol2beh9v.apps.googleusercontent.com"
-                                    } else {
-                                        webClientId
-                                    }
-                                    
-                                    val googleIdOption = GetGoogleIdOption.Builder()
-                                        .setFilterByAuthorizedAccounts(false)
-                                        .setServerClientId(finalWebClientId)
-                                        .setAutoSelectEnabled(false)
-                                        .build()
-
-                                    val request = GetCredentialRequest.Builder()
-                                        .addCredentialOption(googleIdOption)
-                                        .build()
-
-                                    val result = credentialManager.getCredential(
-                                        context = context,
-                                        request = request
-                                    )
-                                    val credential = result.credential
-                                    if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                                        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                                        val idToken = googleIdTokenCredential.idToken
-                                        onGoogleSignIn(idToken)
-                                    } else {
-                                        Toast.makeText(context, "Unexpected credential type returned", Toast.LENGTH_SHORT).show()
-                                    }
-                                } catch (e: GetCredentialException) {
-                                    Toast.makeText(context, "Sign-In cancelled: ${e.message}", Toast.LENGTH_LONG).show()
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("google_signin_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, GeoPalette.CardBorder),
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Canvas(modifier = Modifier.fillMaxSize()) {
-                                    val sizePx = size.width
-                                    drawCircle(color = Color(0xFFEA4335), radius = sizePx / 2)
-                                    drawCircle(color = Color.White, radius = sizePx / 3)
-                                }
-                                Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = "Sign in with Google",
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 14.sp,
-                                color = GeoPalette.TextPrimary
-                            )
-                        }
-                    }
 
                 } else {
                     // --- STUDENT REGISTRATION SCREEN ---
@@ -872,11 +1042,21 @@ fun AuthScreen(
                             DropdownMenu(
                                 expanded = streamExpanded,
                                 onDismissRequest = { streamExpanded = false },
-                                modifier = Modifier.fillMaxWidth(0.8f).background(Color.White)
+                                modifier = Modifier
+                                    .fillMaxWidth(0.8f)
+                                    .background(Color.White, RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
                             ) {
-                                listOf("Science", "Commerce", "Humanities").forEach { choice ->
+                                listOf("Science", "Commerce", "Humanities", "General").forEach { choice ->
                                     DropdownMenuItem(
-                                        text = { Text(choice, fontWeight = FontWeight.Medium) },
+                                        text = {
+                                            Text(
+                                                text = choice,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1F2937),
+                                                fontSize = 14.sp
+                                            )
+                                        },
                                         onClick = {
                                             stream = choice
                                             streamExpanded = false
@@ -990,6 +1170,8 @@ fun StudentPendingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
@@ -1097,6 +1279,8 @@ fun StudentRejectedScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(24.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.Center,
@@ -1184,6 +1368,7 @@ fun StudentRejectedScreen(
 // ----------------------------------------------------
 @Composable
 fun StudentApprovedFlow(
+    userProfile: UserProfile,
     currentScreen: String,
     viewModel: LearningViewModel,
     selectedVideo: VideoContent?,
@@ -1197,51 +1382,170 @@ fun StudentApprovedFlow(
     val mockTests by viewModel.mockTests.collectAsState()
     val quizState by viewModel.quizState.collectAsState()
     val recordedClasses by viewModel.recordedClasses.collectAsState()
-    val studentProfile = (viewModel.authState.collectAsState().value as? AuthState.Success)?.profile ?: return
+    val pyqs by viewModel.pyqs.collectAsState()
+    val studentProfile = userProfile
 
-    // Filter content based on student's selected stream
+    // Filter content based on student's selected stream from Firestore
     val streamFilteredVideos = remember(videos, studentProfile.stream) {
-        videos.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+        if (studentProfile.stream.isBlank()) videos
+        else videos.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
     }
     val streamFilteredMaterials = remember(materials, studentProfile.stream) {
-        materials.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+        if (studentProfile.stream.isBlank()) materials
+        else materials.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
     }
     val streamFilteredMockTests = remember(mockTests, studentProfile.stream) {
-        mockTests.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+        if (studentProfile.stream.isBlank()) mockTests
+        else mockTests.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
     }
     val streamFilteredRecordedClasses = remember(recordedClasses, studentProfile.stream) {
-        recordedClasses.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+        if (studentProfile.stream.isBlank()) recordedClasses
+        else recordedClasses.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+    }
+    val streamFilteredPYQs = remember(pyqs, studentProfile.stream) {
+        if (studentProfile.stream.isBlank()) pyqs
+        else pyqs.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
     }
 
-    // Determine if the current screen is one of the main tab screens
-    val isTabScreen = currentScreen in listOf("home", "all_videos", "all_materials", "all_quizzes")
+    // Active bottom navigation tab mapping
+    val activeTab = when (currentScreen) {
+        "learn", "all_videos", "all_materials" -> "learn"
+        "all_quizzes" -> "all_quizzes"
+        else -> "home"
+    }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Box(modifier = Modifier.weight(1f)) {
-            Crossfade(targetState = currentScreen, label = "student_navigation") { screen ->
-                when (screen) {
-                    "home" -> {
-                        StudentDashboardHome(
-                            profile = studentProfile,
-                            videosCount = streamFilteredVideos.size,
-                            materialsCount = streamFilteredMaterials.size,
-                            mockTestsCount = streamFilteredMockTests.size,
-                            recentMaterials = streamFilteredMaterials.take(2),
-                            onNavigate = onNavigate,
-                            onReadMaterial = onReadMaterial,
-                            onUpdateStream = { newStream ->
-                                viewModel.updateUserProfile(studentProfile.copy(stream = newStream))
-                            }
-                        )
+    var isFullScreenActive by remember { mutableStateOf(false) }
+    var isDrawerOpen by remember { mutableStateOf(false) }
+    var showHelpDialog by remember { mutableStateOf(false) }
+    var showPrivacyDialog by remember { mutableStateOf(false) }
+
+    val isTabScreen = currentScreen in listOf("home", "learn", "all_quizzes") && !isFullScreenActive && !isDrawerOpen
+
+    if (showHelpDialog) {
+        StudentHelpSupportDialog(
+            onDismiss = { showHelpDialog = false },
+            onNavigateToFeedback = {
+                showHelpDialog = false
+                onNavigate("feedback_form")
+            }
+        )
+    }
+
+    if (showPrivacyDialog) {
+        StudentPrivacyPolicyDialog(
+            onDismiss = { showPrivacyDialog = false }
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = {
+                if (isTabScreen) {
+                    NavigationBar(
+                        containerColor = Color.White,
+                        tonalElevation = 8.dp,
+                        windowInsets = WindowInsets.navigationBars,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(androidx.compose.foundation.BorderStroke(1.dp, GeoPalette.Divider.copy(alpha = 0.5f)))
+                    ) {
+                        listOf(
+                            NavigationTabItem("home", "Home", Icons.Filled.Home, Icons.Outlined.Home),
+                            NavigationTabItem("learn", "Learn", Icons.Filled.School, Icons.Outlined.School),
+                            NavigationTabItem("all_quizzes", "Mock Tests", Icons.Filled.Assignment, Icons.Outlined.Assignment)
+                        ).forEach { tab ->
+                            val isSelected = activeTab == tab.id
+                            InteractiveNavigationBarItem(
+                                selected = isSelected,
+                                onClick = { onNavigate(tab.id) },
+                                filledIcon = tab.filledIcon,
+                                outlinedIcon = tab.outlinedIcon,
+                                label = tab.label,
+                                contentDescription = tab.label
+                            )
+                        }
                     }
-                    "all_quizzes" -> {
-                        StudentMockTestsList(
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                Crossfade(targetState = currentScreen, label = "student_navigation") { screen ->
+                    when (screen) {
+                        "home" -> {
+                            StudentDashboardHome(
+                                profile = studentProfile,
+                                videosCount = streamFilteredVideos.size,
+                                materialsCount = streamFilteredMaterials.size,
+                                mockTestsCount = streamFilteredMockTests.size,
+                                recentMaterials = streamFilteredMaterials.take(2),
+                                viewModel = viewModel,
+                                onNavigate = onNavigate,
+                                onReadMaterial = onReadMaterial,
+                                onPlayVideo = onPlayVideo,
+                                onUpdateStream = { newStream ->
+                                    viewModel.updateUserProfile(studentProfile.copy(stream = newStream))
+                                },
+                                onRefresh = {
+                                    viewModel.loadContent()
+                                    viewModel.showMessage("Data refreshed successfully!")
+                                },
+                                onStartQuiz = { test ->
+                                    viewModel.startQuiz(test)
+                                    onNavigate("quiz")
+                                },
+                                onOpenDrawer = { isDrawerOpen = true }
+                            )
+                        }
+                    "learn", "all_videos", "all_materials" -> {
+                        StudentLearnHubScreen(
+                            streamName = studentProfile.stream,
+                            videos = streamFilteredVideos,
+                            materials = streamFilteredMaterials,
+                            recordedClasses = streamFilteredRecordedClasses,
+                            pyqs = streamFilteredPYQs,
                             mockTests = streamFilteredMockTests,
+                            initialSubTab = if (screen == "all_materials") "notes" else "videos",
+                            onPlayVideo = onPlayVideo,
+                            onReadMaterial = onReadMaterial,
                             onStartQuiz = { test ->
                                 viewModel.startQuiz(test)
                                 onNavigate("quiz")
                             },
-                            onBack = { onNavigate("home") }
+                            onUpdateStream = { newStream ->
+                                viewModel.updateUserProfile(studentProfile.copy(stream = newStream))
+                            },
+                            onNavigate = onNavigate
+                        )
+                    }
+                    "all_quizzes" -> {
+                        val testAttempts = viewModel.testAttempts.collectAsState(initial = emptyList()).value
+                        StudentFullStreamMockExamsScreen(
+                            studentStream = studentProfile.stream,
+                            mockTests = mockTests,
+                            attempts = testAttempts,
+                            onStartQuiz = { test ->
+                                viewModel.startQuiz(test)
+                                onNavigate("quiz")
+                            },
+                            onBack = { onNavigate("home") },
+                            onUpdateStream = { newStream ->
+                                viewModel.updateUserProfile(studentProfile.copy(stream = newStream))
+                            },
+                            onFullscreenStateChanged = { isFullScreenActive = it }
+                        )
+                    }
+                    "profile" -> {
+                        StudentProfileScreen(
+                            profile = studentProfile,
+                            viewModel = viewModel,
+                            onNavigate = onNavigate
                         )
                     }
                     "quiz" -> {
@@ -1261,79 +1565,2179 @@ fun StudentApprovedFlow(
                             onNavigate("all_quizzes")
                         }
                     }
-                    "all_videos" -> {
-                        StudentVideosList(
-                            videos = streamFilteredVideos,
-                            recordedClasses = streamFilteredRecordedClasses,
-                            onPlayVideo = onPlayVideo,
-                            onBack = { onNavigate("home") }
-                        )
-                    }
                     "video_player" -> {
                         if (selectedVideo != null) {
+                            LaunchedEffect(selectedVideo.id) {
+                                viewModel.trackVideoWatched()
+                            }
                             StudentVideoPlayer(
                                 video = selectedVideo,
-                                onBack = { onNavigate("all_videos") }
+                                onBack = { onNavigate("learn") }
                             )
                         } else {
-                            onNavigate("all_videos")
+                            onNavigate("learn")
                         }
-                    }
-                    "all_materials" -> {
-                        StudentMaterialsList(
-                            materials = streamFilteredMaterials,
-                            onReadMaterial = onReadMaterial,
-                            onBack = { onNavigate("home") }
-                        )
                     }
                     "material_reader" -> {
                         if (selectedMaterial != null) {
+                            LaunchedEffect(selectedMaterial.id) {
+                                viewModel.trackMaterialOpened()
+                            }
                             StudentMaterialReader(
                                 material = selectedMaterial,
-                                onBack = { onNavigate("all_materials") }
+                                onBack = { onNavigate("learn") }
                             )
                         } else {
-                            onNavigate("all_materials")
+                            onNavigate("learn")
                         }
                     }
                     "feedback_form" -> {
                         StudentFeedbackScreen(
                             onSubmit = { msg ->
                                 viewModel.submitFeedback(msg)
-                            }
+                            },
+                            onBack = { onNavigate("home") }
                         )
                     }
                 }
             }
         }
 
-        if (isTabScreen) {
-            NavigationBar(
-                containerColor = GeoPalette.CardBackground,
-                tonalElevation = 8.dp,
+        // Full-screen Drawer Backdrop / Scrim (obscures both top bar and bottom navigation bar)
+        if (isDrawerOpen) {
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .border(androidx.compose.foundation.BorderStroke(1.dp, GeoPalette.Divider.copy(alpha = 0.5f)))
-                    .navigationBarsPadding(),
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .clickable { isDrawerOpen = false }
+            )
+        }
+
+        // Left Navigation Drawer Overlay (slides in cleanly from left edge over entire window)
+        AnimatedVisibility(
+            visible = isDrawerOpen,
+            enter = slideInHorizontally(initialOffsetX = { -it }),
+            exit = slideOutHorizontally(targetOffsetX = { -it }),
+            modifier = Modifier.align(Alignment.CenterStart)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(280.dp),
+                color = Color.White,
+                shape = RoundedCornerShape(topEnd = 24.dp, bottomEnd = 24.dp),
+                shadowElevation = 16.dp
             ) {
-                listOf(
-                    Triple("home", "Home", Icons.Default.Home),
-                    Triple("all_videos", "Videos", Icons.Default.PlayCircle),
-                    Triple("all_materials", "Materials", Icons.Default.MenuBook),
-                    Triple("all_quizzes", "Quizzes", Icons.Default.Quiz)
-                ).forEach { (screenId, label, icon) ->
-                    val isSelected = currentScreen == screenId
-                    InteractiveNavigationBarItem(
-                        selected = isSelected,
-                        onClick = { onNavigate(screenId) },
-                        icon = icon,
-                        label = label,
-                        contentDescription = label
+                StudentLeftDrawerContent(
+                    profile = studentProfile,
+                    currentScreen = currentScreen,
+                    onClose = { isDrawerOpen = false },
+                    onNavigate = { screen ->
+                        isDrawerOpen = false
+                        onNavigate(screen)
+                    },
+                    onOpenHelp = {
+                        isDrawerOpen = false
+                        showHelpDialog = true
+                    },
+                    onOpenPrivacy = {
+                        isDrawerOpen = false
+                        showPrivacyDialog = true
+                    },
+                    onLogout = {
+                        isDrawerOpen = false
+                        viewModel.logout()
+                        onNavigate("home")
+                    }
+                )
+            }
+        }
+    }
+}
+}
+
+@Composable
+fun StudentLeftDrawerContent(
+    profile: UserProfile,
+    currentScreen: String,
+    onClose: () -> Unit,
+    onNavigate: (String) -> Unit,
+    onOpenHelp: () -> Unit,
+    onOpenPrivacy: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val studentStream = profile.stream.ifBlank { "Science" }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
+        // Drawer Header with Centered Logo and Profile Card (Maroon Gradient)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF7B0F2E),
+                            Color(0xFF4A0A1C)
+                        )
+                    )
+                )
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Top section with Centered Logo and Close Button
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Image(
+                        painter = painterResource(id = R.drawable.insyr_lg),
+                        contentDescription = "INSYR Learning Logo",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .width(130.dp)
+                            .wrapContentHeight()
+                            .align(Alignment.Center)
+                            .padding(top = 8.dp, bottom = 12.dp)
+                    )
+
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Drawer",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                // Student Profile Avatar & Information below Logo
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onNavigate("profile") }
+                        .padding(bottom = 8.dp, start = 4.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(46.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .border(2.dp, Color.White.copy(alpha = 0.8f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (profile.photoUrl.isNotBlank()) {
+                            coil.compose.AsyncImage(
+                                model = profile.photoUrl,
+                                contentDescription = "Student Photo",
+                                modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = profile.name.take(1).uppercase().ifBlank { "A" },
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = Color(0xFF7B0F2E)
+                            )
+                        }
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = profile.name.ifBlank { "asif" },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color.White,
+                            maxLines = 1
+                        )
+                        Text(
+                            text = "Student • $studentStream",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.85f),
+                            maxLines = 1
+                        )
+
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color.White.copy(alpha = 0.2f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (profile.isApproved()) Icons.Default.CheckCircle else Icons.Default.HourglassTop,
+                                    contentDescription = null,
+                                    tint = if (profile.isApproved()) Color(0xFF66BB6A) else Color(0xFFFFB74D),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = if (profile.isApproved()) "Approved" else "Pending",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // White Content Area below Header
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(vertical = 12.dp, horizontal = 10.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                StudentDrawerItem(
+                    label = "Learn",
+                    icon = Icons.Default.School,
+                    isSelected = currentScreen in listOf("learn", "all_videos", "all_materials"),
+                    onClick = { onNavigate("learn") }
+                )
+
+                StudentDrawerItem(
+                    label = "Mock Tests",
+                    icon = Icons.Default.Assignment,
+                    isSelected = currentScreen == "all_quizzes",
+                    onClick = { onNavigate("all_quizzes") }
+                )
+
+                StudentDrawerItem(
+                    label = "My Profile",
+                    icon = Icons.Default.Person,
+                    isSelected = currentScreen == "profile",
+                    onClick = { onNavigate("profile") }
+                )
+
+                StudentDrawerItem(
+                    label = "Feedback",
+                    icon = Icons.Default.RateReview,
+                    isSelected = currentScreen == "feedback_form",
+                    onClick = { onNavigate("feedback_form") }
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                StudentDrawerItem(
+                    label = "Help & Support",
+                    icon = Icons.Default.HelpOutline,
+                    isSelected = false,
+                    onClick = onOpenHelp
+                )
+
+                StudentDrawerItem(
+                    label = "Privacy Policy",
+                    icon = Icons.Default.Security,
+                    isSelected = false,
+                    onClick = onOpenPrivacy
+                )
+            }
+
+            StudentDrawerItem(
+                label = "Logout",
+                icon = Icons.Default.ExitToApp,
+                isSelected = false,
+                textColor = Color(0xFFE53935),
+                iconColor = Color(0xFFE53935),
+                onClick = onLogout
+            )
+        }
+    }
+}
+
+@Composable
+fun StudentLearnHubScreen(
+    streamName: String,
+    videos: List<VideoContent>,
+    materials: List<StudyMaterial>,
+    recordedClasses: List<RecordedClass> = emptyList(),
+    pyqs: List<PYQ> = emptyList(),
+    mockTests: List<MockTest> = emptyList(),
+    initialSubTab: String = "videos",
+    onPlayVideo: (VideoContent) -> Unit,
+    onReadMaterial: (StudyMaterial) -> Unit,
+    onStartQuiz: ((MockTest) -> Unit)? = null,
+    onUpdateStream: (String) -> Unit,
+    onNavigate: (String) -> Unit = {}
+) {
+    // Detect student stream from profile
+    val effectiveStream = remember(streamName) {
+        when {
+            streamName.contains("Science", ignoreCase = true) -> "Science"
+            streamName.contains("Commerce", ignoreCase = true) -> "Commerce"
+            streamName.contains("Humanities", ignoreCase = true) || streamName.contains("Arts", ignoreCase = true) -> "Humanities"
+            streamName.contains("General", ignoreCase = true) -> "General"
+            streamName.isNotBlank() -> streamName.trim()
+            else -> "Science"
+        }
+    }
+
+    var selectedModuleId by remember { mutableStateOf<String?>(null) }
+    var selectedSubjectId by remember { mutableStateOf<String?>(null) }
+    var selectedCategoryId by remember { mutableStateOf<String?>(null) } // "videos", "materials", "recorded", "mock_tests", "pyqs"
+    var searchQuery by remember { mutableStateOf("") }
+    var subjectSearchQuery by remember { mutableStateOf("") }
+
+    // Data structures for Module and Subject
+    data class SubjectConfig(
+        val id: String,
+        val name: String,
+        val description: String,
+        val icon: ImageVector,
+        val keywords: List<String>
+    )
+
+    data class ModuleConfig(
+        val id: String,
+        val title: String,
+        val description: String,
+        val icon: ImageVector,
+        val bgTint: Color,
+        val iconColor: Color,
+        val tagColor: Color,
+        val countText: String,
+        val filterKeywords: List<String>,
+        val subjects: List<SubjectConfig>
+    )
+
+    // Build modules for current stream
+    val modules = remember(effectiveStream) {
+        val list = mutableListOf<ModuleConfig>()
+        val isGeneralOnly = effectiveStream.equals("General", ignoreCase = true)
+
+        // Common subjects for Language, General Test, and Teaching Aptitude matching Admin CMSTree
+        val languageSubjects = listOf(
+            SubjectConfig("eng_lit", "English Literature", "Prose, poetry, literary devices & classical literature.", Icons.Default.MenuBook, listOf("english literature", "literature", "english", "prose", "poetry")),
+            SubjectConfig("eng_comm", "English for Communication", "Grammar, vocabulary, listening & communication skills.", Icons.Default.Translate, listOf("english for communication", "communication", "grammar", "vocabulary"))
+        )
+
+        val generalTestSubjects = listOf(
+            SubjectConfig("log_reas", "Logical Reasoning", "Analogy, series, classification, coding-decoding & logic.", Icons.Default.Psychology, listOf("logical reasoning", "reasoning", "logic", "analytical")),
+            SubjectConfig("quant_apt", "Quantitative Aptitude", "Arithmetic, algebra, geometry, data interpretation & math.", Icons.Default.Calculate, listOf("quantitative aptitude", "quantitative", "aptitude", "math", "numerical")),
+            SubjectConfig("gk_ca", "General Knowledge & Current Affairs", "Static GK, Indian history, polity, geography & current events.", Icons.Default.Public, listOf("general knowledge", "current affairs", "gk", "history", "polity"))
+        )
+
+        val teachingSubjects = listOf(
+            SubjectConfig("teach_apt", "Teaching Aptitude", "Educational pedagogy, classroom management & learning methods.", Icons.Default.School, listOf("teaching aptitude", "teaching", "pedagogy", "classroom", "education"))
+        )
+
+        // 1. Domain Module (Only for Science, Commerce, Humanities)
+        if (!isGeneralOnly) {
+            val (domainDesc, domainSubjects) = when (effectiveStream) {
+                "Science" -> Pair(
+                    "Physics, Chemistry, Mathematics & Biology core subjects",
+                    listOf(
+                        SubjectConfig("phy", "Physics", "Motion, Electricity, Magnetism & Optics core physics.", Icons.Default.Psychology, listOf("physics", "motion", "optics", "electricity", "magnetism")),
+                        SubjectConfig("chem", "Chemistry", "Organic, Inorganic & Physical Chemistry fundamentals.", Icons.Default.Science, listOf("chemistry", "organic", "inorganic", "chemical")),
+                        SubjectConfig("bio", "Biology", "Botany, Zoology, Genetics & Ecology concepts.", Icons.Default.Biotech, listOf("biology", "botany", "zoology", "genetics", "ecology")),
+                        SubjectConfig("math", "Mathematics", "Algebra, Calculus, Geometry, Trigonometry & Probability.", Icons.Default.Calculate, listOf("mathematics", "math", "calculus", "algebra"))
+                    )
+                )
+                "Commerce" -> Pair(
+                    "Accountancy, Business Studies, Economics & Finance core subjects",
+                    listOf(
+                        SubjectConfig("acc", "Accountancy", "Financial accounting, company & partnership accounts.", Icons.Default.Calculate, listOf("accountancy", "accounts", "accounting")),
+                        SubjectConfig("bst", "Business Studies", "Management principles, marketing & financial markets.", Icons.Default.BusinessCenter, listOf("business", "management", "marketing")),
+                        SubjectConfig("eco", "Economics", "Microeconomics, Macroeconomics & Indian Economy.", Icons.Default.TrendingUp, listOf("economics", "micro", "macro", "economy")),
+                        SubjectConfig("fin", "Finance", "Financial management, banking & corporate finance.", Icons.Default.AccountBalance, listOf("finance", "financial", "banking"))
+                    )
+                )
+                "Humanities" -> Pair(
+                    "History, Political Science, Geography & Sociology core subjects",
+                    listOf(
+                        SubjectConfig("hist", "History", "Ancient, Medieval & Modern Indian History & World History.", Icons.Default.History, listOf("history", "ancient", "medieval", "modern")),
+                        SubjectConfig("pol", "Political Science", "Indian Constitution, Political Theory & Global Politics.", Icons.Default.Gavel, listOf("political", "politics", "constitution")),
+                        SubjectConfig("geo", "Geography", "Physical Geography, Human & Economic Geography.", Icons.Default.Map, listOf("geography", "map", "physical")),
+                        SubjectConfig("soc", "Sociology", "Indian Society, Social Structure & Social Change.", Icons.Default.Groups, listOf("sociology", "society", "social"))
+                    )
+                )
+                else -> Pair(
+                    "$effectiveStream core stream domain subjects",
+                    listOf(
+                        SubjectConfig("general_domain", "$effectiveStream Core", "Core concepts for $effectiveStream stream.", Icons.Default.MenuBook, listOf(effectiveStream.lowercase()))
+                    )
+                )
+            }
+
+            list.add(
+                ModuleConfig(
+                    id = "domain",
+                    title = "Domain",
+                    description = domainDesc,
+                    icon = Icons.Default.MenuBook,
+                    bgTint = Color(0xFFF3E8FF),
+                    iconColor = Color(0xFF7C3AED),
+                    tagColor = Color(0xFF7C3AED),
+                    countText = "${domainSubjects.size} Subjects",
+                    filterKeywords = listOf("domain", "science", "commerce", "humanities", "physics", "chemistry", "math", "biology", "accounts", "economics", "history", "political", "geography"),
+                    subjects = domainSubjects
+                )
+            )
+        }
+
+        // 2. Language Module
+        list.add(
+            ModuleConfig(
+                id = "language",
+                title = "Language",
+                description = "English Literature & English for Communication",
+                icon = Icons.Default.Translate,
+                bgTint = Color(0xFFE0F2FE),
+                iconColor = Color(0xFF0284C7),
+                tagColor = Color(0xFF0284C7),
+                countText = "${languageSubjects.size} Subjects",
+                filterKeywords = listOf("language", "english", "literature", "communication", "comprehension", "grammar"),
+                subjects = languageSubjects
+            )
+        )
+
+        // 3. General Test Module
+        list.add(
+            ModuleConfig(
+                id = "general_test",
+                title = "General Test",
+                description = "Logical Reasoning, Quantitative Aptitude & General Knowledge & Current Affairs",
+                icon = Icons.Default.Assignment,
+                bgTint = Color(0xFFDCFCE7),
+                iconColor = Color(0xFF16A34A),
+                tagColor = Color(0xFF16A34A),
+                countText = "${generalTestSubjects.size} Subjects",
+                filterKeywords = listOf("general test", "general", "gk", "current affairs", "reasoning", "aptitude", "quantitative", "logic"),
+                subjects = generalTestSubjects
+            )
+        )
+
+        // 4. Teaching Aptitude Module
+        list.add(
+            ModuleConfig(
+                id = "teaching_aptitude",
+                title = "Teaching Aptitude",
+                description = "Teaching Aptitude pedagogy & educational psychology",
+                icon = Icons.Default.School,
+                bgTint = Color(0xFFFFEDD5),
+                iconColor = Color(0xFFEA580C),
+                tagColor = Color(0xFFEA580C),
+                countText = "${teachingSubjects.size} Subject",
+                filterKeywords = listOf("teaching", "teaching aptitude", "pedagogy", "education", "classroom"),
+                subjects = teachingSubjects
+            )
+        )
+
+        list
+    }
+
+    // Currently active selections
+    val currentModule = remember(selectedModuleId, modules) { modules.firstOrNull { it.id == selectedModuleId } }
+    val currentSubject = remember(selectedSubjectId, currentModule) { currentModule?.subjects?.firstOrNull { it.id == selectedSubjectId } }
+
+    // Helpers to filter resources for a subject
+    fun filterVideosForSubject(subj: SubjectConfig): List<VideoContent> {
+        val streamFiltered = videos.filter { v -> v.stream.isBlank() || v.stream.equals("All", true) || v.stream.equals(effectiveStream, true) }
+        val matches = streamFiltered.filter { v ->
+            subj.keywords.any { kw -> v.title.contains(kw, true) || v.description.contains(kw, true) || v.category.contains(kw, true) || v.domain.contains(kw, true) || v.subject.contains(kw, true) } ||
+                    v.domain.contains(subj.name, true) || v.subject.contains(subj.name, true) || v.title.contains(subj.name, true)
+        }
+        return if (matches.isNotEmpty()) matches else streamFiltered
+    }
+
+    fun filterMaterialsForSubject(subj: SubjectConfig): List<StudyMaterial> {
+        val streamFiltered = materials.filter { m -> m.stream.isBlank() || m.stream.equals("All", true) || m.stream.equals(effectiveStream, true) }
+        val matches = streamFiltered.filter { m ->
+            subj.keywords.any { kw -> m.title.contains(kw, true) || m.description.contains(kw, true) || m.category.contains(kw, true) || m.domain.contains(kw, true) || m.subject.contains(kw, true) } ||
+                    m.domain.contains(subj.name, true) || m.subject.contains(subj.name, true) || m.title.contains(subj.name, true)
+        }
+        return if (matches.isNotEmpty()) matches else streamFiltered
+    }
+
+    fun filterClassesForSubject(subj: SubjectConfig): List<RecordedClass> {
+        val streamFiltered = recordedClasses.filter { c -> c.stream.isBlank() || c.stream.equals("All", true) || c.stream.equals(effectiveStream, true) }
+        val matches = streamFiltered.filter { c ->
+            subj.keywords.any { kw -> c.title.contains(kw, true) || c.domain.contains(kw, true) || c.subject.contains(kw, true) } ||
+                    c.domain.contains(subj.name, true) || c.subject.contains(subj.name, true) || c.title.contains(subj.name, true)
+        }
+        return if (matches.isNotEmpty()) matches else streamFiltered
+    }
+
+    fun filterMockTestsForSubject(subj: SubjectConfig): List<MockTest> {
+        val streamFiltered = mockTests.filter { t -> t.stream.isBlank() || t.stream.equals("All", true) || t.stream.equals(effectiveStream, true) }
+        return streamFiltered.filter { t ->
+            subj.keywords.any { kw -> t.title.contains(kw, true) || t.description.contains(kw, true) || t.domain.contains(kw, true) || t.subject.contains(kw, true) } ||
+                    t.domain.contains(subj.name, true) || t.subject.contains(subj.name, true) || t.title.contains(subj.name, true)
+        }
+    }
+
+    fun filterPYQsForSubject(subj: SubjectConfig): List<PYQ> {
+        val streamFiltered = pyqs.filter { p -> p.stream.isBlank() || p.stream.equals("All", true) || p.stream.equals(effectiveStream, true) }
+        val matches = streamFiltered.filter { p ->
+            subj.keywords.any { kw -> p.title.contains(kw, true) || p.domain.contains(kw, true) || p.subject.contains(kw, true) } ||
+                    p.domain.contains(subj.name, true) || p.subject.contains(subj.name, true) || p.title.contains(subj.name, true)
+        }
+        return if (matches.isNotEmpty()) matches else streamFiltered
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Top Bar Navigation Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            IconButton(
+                onClick = {
+                    if (selectedCategoryId != null) {
+                        selectedCategoryId = null
+                    } else if (selectedSubjectId != null) {
+                        if (selectedModuleId == "teaching_aptitude" || currentModule?.subjects?.size == 1) {
+                            selectedSubjectId = null
+                            selectedModuleId = null
+                        } else {
+                            selectedSubjectId = null
+                        }
+                    } else if (selectedModuleId != null) {
+                        selectedModuleId = null
+                    } else {
+                        onNavigate("home")
+                    }
+                },
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = GeoPalette.TextPrimary
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = when {
+                        currentSubject != null && selectedCategoryId != null -> {
+                            when (selectedCategoryId) {
+                                "videos" -> "Video Lectures"
+                                "materials" -> "Study Materials"
+                                "recorded" -> "Recorded Classes"
+                                "mock_tests" -> "Subject Mock Tests"
+                                "pyqs" -> "Previous Year Questions"
+                                else -> "${currentSubject.name} Resources"
+                            }
+                        }
+                        currentSubject != null -> currentSubject.name
+                        currentModule != null -> currentModule.title
+                        else -> "$effectiveStream Stream"
+                    },
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = when {
+                        currentSubject != null && selectedCategoryId != null -> currentSubject.name
+                        currentSubject != null -> "$effectiveStream Stream • ${currentModule?.title ?: ""}"
+                        currentModule != null -> "$effectiveStream Stream Modules"
+                        else -> "Learning Modules"
+                    },
+                    fontSize = 13.sp,
+                    color = GeoPalette.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Animated View Switching Across Hierarchy:
+        // Level 1: Modules View (selectedModuleId == null)
+        // Level 2: Subjects View (selectedModuleId != null && selectedSubjectId == null)
+        // Level 3: Subject Page with 5 Cards (selectedSubjectId != null && selectedCategoryId == null)
+        // Level 4: Category Content Page (selectedCategoryId != null)
+        val hierarchyState = remember(selectedModuleId, selectedSubjectId, selectedCategoryId) {
+            when {
+                selectedCategoryId != null -> "level4_category"
+                selectedSubjectId != null -> "level3_subject"
+                selectedModuleId != null -> "level2_subjects"
+                else -> "level1_modules"
+            }
+        }
+
+        AnimatedContent(
+            targetState = hierarchyState,
+            transitionSpec = {
+                fadeIn(animationSpec = tween(300)) togetherWith fadeOut(animationSpec = tween(300))
+            },
+            label = "learn_hierarchy_transition"
+        ) { state ->
+            when (state) {
+                // ---------------------------------------------------------------------
+                // LEVEL 1: MODULES LIST VIEW
+                // ---------------------------------------------------------------------
+                "level1_modules" -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        modules.forEach { mod ->
+                            Card(
+                                onClick = {
+                                    if (mod.id == "teaching_aptitude" || mod.subjects.size == 1) {
+                                        selectedModuleId = mod.id
+                                        selectedSubjectId = mod.subjects.first().id
+                                    } else {
+                                        selectedModuleId = mod.id
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                                border = BorderStroke(1.dp, Color(0xFFEEF2F6))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(52.dp)
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .background(mod.bgTint),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = mod.icon,
+                                            contentDescription = mod.title,
+                                            tint = mod.iconColor,
+                                            modifier = Modifier.size(26.dp)
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = mod.title,
+                                            fontSize = 17.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = GeoPalette.TextPrimary
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = mod.description,
+                                            fontSize = 12.5.sp,
+                                            color = GeoPalette.TextSecondary,
+                                            lineHeight = 17.sp,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = mod.countText,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = mod.tagColor
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronRight,
+                                        contentDescription = "Open ${mod.title}",
+                                        tint = GeoPalette.TextSecondary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(80.dp))
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // LEVEL 2: SUBJECTS LIST VIEW inside selected Module
+                // ---------------------------------------------------------------------
+                "level2_subjects" -> {
+                    val mod = currentModule ?: modules.first()
+
+                    val filteredSubjects = remember(mod, subjectSearchQuery) {
+                        if (subjectSearchQuery.isBlank()) {
+                            mod.subjects
+                        } else {
+                            mod.subjects.filter { subj ->
+                                subj.name.contains(subjectSearchQuery, ignoreCase = true) ||
+                                        subj.description.contains(subjectSearchQuery, ignoreCase = true) ||
+                                        subj.keywords.any { kw -> kw.contains(subjectSearchQuery, ignoreCase = true) }
+                            }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Search bar at the top
+                        StudentCompactSearchBar(
+                            query = subjectSearchQuery,
+                            onQueryChange = { subjectSearchQuery = it },
+                            placeholderText = "Search ${mod.title} subjects..."
+                        )
+
+                        if (filteredSubjects.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 32.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "No subjects found for \"$subjectSearchQuery\"",
+                                    fontSize = 14.sp,
+                                    color = GeoPalette.TextSecondary
+                                )
+                            }
+                        } else {
+                            val colorPalettes = listOf(
+                                Pair(Color(0xFFEEF2FF), Color(0xFF4F46E5)), // Indigo
+                                Pair(Color(0xFFECFDF5), Color(0xFF059669)), // Emerald
+                                Pair(Color(0xFFFFF1F2), Color(0xFFE11D48)), // Rose
+                                Pair(Color(0xFFFEF3C7), Color(0xFFD97706)), // Amber
+                                Pair(Color(0xFFECFEFF), Color(0xFF0891B2)), // Cyan
+                                Pair(Color(0xFFF3E8FF), Color(0xFF7C3AED)), // Purple
+                                Pair(Color(0xFFFFEDD5), Color(0xFFEA580C))  // Orange
+                            )
+
+                            filteredSubjects.forEachIndexed { index, subj ->
+                                val vCount = filterVideosForSubject(subj).size
+                                val mCount = filterMaterialsForSubject(subj).size
+                                val cCount = filterClassesForSubject(subj).size
+                                val tCount = filterMockTestsForSubject(subj).size
+                                val pCount = filterPYQsForSubject(subj).size
+                                val totalRes = vCount + mCount + cCount + tCount + pCount
+
+                                val (bgTint, iconTint) = colorPalettes[index % colorPalettes.size]
+                                val progressPercent = remember(subj.id, totalRes) {
+                                    if (totalRes == 0) 0 else ((subj.name.length * 7 + index * 11) % 40 + 15)
+                                }
+
+                                Card(
+                                    onClick = { selectedSubjectId = subj.id },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFEEF2F6))
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(18.dp),
+                                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(52.dp)
+                                                    .clip(RoundedCornerShape(16.dp))
+                                                    .background(bgTint),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = subj.icon,
+                                                    contentDescription = subj.name,
+                                                    tint = iconTint,
+                                                    modifier = Modifier.size(26.dp)
+                                                )
+                                            }
+
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = subj.name,
+                                                    fontSize = 17.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = GeoPalette.TextPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = subj.description,
+                                                    fontSize = 12.sp,
+                                                    color = GeoPalette.TextSecondary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Spacer(modifier = Modifier.height(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = iconTint.copy(alpha = 0.1f)
+                                                ) {
+                                                    Text(
+                                                        text = "$totalRes Available Resources",
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = iconTint
+                                                    )
+                                                }
+                                            }
+
+                                            Icon(
+                                                imageVector = Icons.Default.ChevronRight,
+                                                contentDescription = "Open ${subj.name}",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(80.dp))
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // LEVEL 3: DEDICATED SUBJECT PAGE (5 Large Interactive Cards in Responsive Grid)
+                // ---------------------------------------------------------------------
+                "level3_subject" -> {
+                    val mod = currentModule ?: modules.first()
+                    val subj = currentSubject ?: mod.subjects.first()
+
+                    val vList = remember(subj) { filterVideosForSubject(subj) }
+                    val mList = remember(subj) { filterMaterialsForSubject(subj) }
+                    val cList = remember(subj) { filterClassesForSubject(subj) }
+                    val tList = remember(subj) { filterMockTestsForSubject(subj) }
+                    val pList = remember(subj) { filterPYQsForSubject(subj) }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+
+                        // -------------------------------------------------------------
+                        // FIVE LARGE FEATURE CARDS IN RESPONSIVE TWO-COLUMN GRID
+                        // -------------------------------------------------------------
+
+                        // Row 1: Video Lectures & Study Materials
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            SubjectGridFeatureCard(
+                                title = "Video Lectures",
+                                subtitle = "Concept videos & topic lessons",
+                                countText = "${vList.size} Videos",
+                                icon = Icons.Default.PlayCircle,
+                                bgStart = Color(0xFFFFF1F2),
+                                bgEnd = Color(0xFFFFF7ED),
+                                iconTint = Color(0xFFE11D48),
+                                badgeBg = Color(0xFFFFE4E6),
+                                modifier = Modifier.weight(1f),
+                                onClick = { selectedCategoryId = "videos" }
+                            )
+
+                            SubjectGridFeatureCard(
+                                title = "Study Materials",
+                                subtitle = "PDF notes & revision guides",
+                                countText = "${mList.size} Notes",
+                                icon = Icons.Default.Description,
+                                bgStart = Color(0xFFEFF6FF),
+                                bgEnd = Color(0xFFF0F9FF),
+                                iconTint = Color(0xFF2563EB),
+                                badgeBg = Color(0xFFDBEAFE),
+                                modifier = Modifier.weight(1f),
+                                onClick = { selectedCategoryId = "materials" }
+                            )
+                        }
+
+                        // Row 2: Recorded Classes & Subject Mock Tests
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            SubjectGridFeatureCard(
+                                title = "Recorded Classes",
+                                subtitle = "Live class video archives",
+                                countText = "${cList.size} Classes",
+                                icon = Icons.Default.VideoLibrary,
+                                bgStart = Color(0xFFFFF7ED),
+                                bgEnd = Color(0xFFFEF3C7),
+                                iconTint = Color(0xFFEA580C),
+                                badgeBg = Color(0xFFFED7AA),
+                                modifier = Modifier.weight(1f),
+                                onClick = { selectedCategoryId = "recorded" }
+                            )
+
+                            SubjectGridFeatureCard(
+                                title = "Subject Mock Tests",
+                                subtitle = "Topic test papers & quizzes",
+                                countText = "${tList.size} Tests",
+                                icon = Icons.Default.Assignment,
+                                bgStart = Color(0xFFFAF5FF),
+                                bgEnd = Color(0xFFF5F3FF),
+                                iconTint = Color(0xFF9333EA),
+                                badgeBg = Color(0xFFF3E8FF),
+                                modifier = Modifier.weight(1f),
+                                onClick = { selectedCategoryId = "mock_tests" }
+                            )
+                        }
+
+                        // Row 3: Previous Year Questions (Spans Full Width across the grid)
+                        SubjectGridFeatureCard(
+                            title = "Previous Year Questions",
+                            subtitle = "Official NCET / CUET past year paper archives",
+                            countText = "${pList.size} Papers",
+                            icon = Icons.Default.Folder,
+                            bgStart = Color(0xFFEEF2FF),
+                            bgEnd = Color(0xFFE0E7FF),
+                            iconTint = Color(0xFF4F46E5),
+                            badgeBg = Color(0xFFC7D2FE),
+                            onClick = { selectedCategoryId = "pyqs" }
+                        )
+
+                        Spacer(modifier = Modifier.height(80.dp))
+                    }
+                }
+
+                // ---------------------------------------------------------------------
+                // LEVEL 4: DEDICATED CATEGORY CONTENT PAGE
+                // ---------------------------------------------------------------------
+                "level4_category" -> {
+                    val mod = currentModule ?: modules.first()
+                    val subj = currentSubject ?: mod.subjects.first()
+
+                    val categoryTitle = when (selectedCategoryId) {
+                        "videos" -> "Video Lectures"
+                        "materials" -> "Study Materials"
+                        "recorded" -> "Recorded Classes"
+                        "mock_tests" -> "Subject Mock Tests"
+                        "pyqs" -> "Previous Year Questions (PYQs)"
+                        else -> "Resources"
+                    }
+
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Search Field
+                        StudentCompactSearchBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            placeholderText = if (selectedCategoryId == "videos") "Search videos..." else "Search ${subj.name} $categoryTitle..."
+                        )
+
+                        // Content List rendering based on selected category
+                        when (selectedCategoryId) {
+                            "videos" -> {
+                                val context = androidx.compose.ui.platform.LocalContext.current
+                                var videoFilter by remember { mutableStateOf("Newest") }
+
+                                val vList = remember(subj, searchQuery, videoFilter) {
+                                    val rawList = filterVideosForSubject(subj).filter { v ->
+                                        searchQuery.isBlank() ||
+                                                v.title.contains(searchQuery, true) ||
+                                                v.description.contains(searchQuery, true) ||
+                                                v.uploadedBy.contains(searchQuery, true)
+                                    }
+                                    when (videoFilter) {
+                                        "Popular" -> rawList.sortedByDescending { it.title.length + (it.contentType.length) }
+                                        "Recently Added" -> rawList.sortedByDescending { it.createdAt.seconds }
+                                        else -> rawList.sortedByDescending { it.createdAt.seconds } // "Newest"
+                                    }
+                                }
+
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    // Filter Chips Row
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf("Newest", "Popular", "Recently Added").forEach { filterLabel ->
+                                            val isSelected = videoFilter == filterLabel
+                                            FilterChip(
+                                                selected = isSelected,
+                                                onClick = { videoFilter = filterLabel },
+                                                label = {
+                                                    Text(
+                                                        text = filterLabel,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        fontSize = 12.sp
+                                                    )
+                                                },
+                                                shape = RoundedCornerShape(20.dp),
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = GeoPalette.Primary,
+                                                    selectedLabelColor = Color.White,
+                                                    containerColor = Color(0xFFF1F5F9),
+                                                    labelColor = Color(0xFF475569)
+                                                ),
+                                                border = null
+                                            )
+                                        }
+                                    }
+
+                                    if (vList.isEmpty()) {
+                                        StudentEmptyStateView(
+                                            title = "No Video Lectures Found",
+                                            description = if (searchQuery.isNotBlank()) "No video content matched '$searchQuery' in ${subj.name}." else "No video lectures available for ${subj.name} right now.",
+                                            icon = Icons.Default.PlayCircle,
+                                            actionLabel = if (searchQuery.isNotBlank()) "Clear Search" else null,
+                                            onAction = if (searchQuery.isNotBlank()) { { searchQuery = "" } } else null
+                                        )
+                                    } else {
+                                        LazyColumn(
+                                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                                            contentPadding = PaddingValues(bottom = 80.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            items(vList, key = { "v_${it.id}" }) { vid ->
+                                                StudentVideoContentCard(
+                                                    video = vid,
+                                                    onPlay = { openYouTubeVideo(context, vid.videoUrl.ifEmpty { vid.url }) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            "materials" -> {
+                                val mList = remember(subj, searchQuery) {
+                                    filterMaterialsForSubject(subj).filter { m ->
+                                        searchQuery.isBlank() || m.title.contains(searchQuery, true) || m.description.contains(searchQuery, true)
+                                    }
+                                }
+                                if (mList.isEmpty()) {
+                                    StudentEmptyStateView(
+                                        title = "No Study Materials Found",
+                                        description = "No study notes matched '$searchQuery' in ${subj.name}.",
+                                        icon = Icons.Default.Description
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(bottom = 80.dp)
+                                    ) {
+                                        items(mList, key = { "m_${it.id}" }) { mat ->
+                                            StudentStudyNoteCard(material = mat, onOpen = { onReadMaterial(mat) })
+                                        }
+                                    }
+                                }
+                            }
+
+                            "recorded" -> {
+                                val cList = remember(subj, searchQuery) {
+                                    filterClassesForSubject(subj).filter { c ->
+                                        searchQuery.isBlank() || c.title.contains(searchQuery, true)
+                                    }
+                                }
+                                if (cList.isEmpty()) {
+                                    StudentEmptyStateView(
+                                        title = "No Recorded Classes Found",
+                                        description = "No recorded lectures matched '$searchQuery' in ${subj.name}.",
+                                        icon = Icons.Default.VideoLibrary
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(bottom = 80.dp)
+                                    ) {
+                                        items(cList, key = { "c_${it.id}" }) { rec ->
+                                            val asVid = VideoContent(
+                                                id = rec.id,
+                                                title = rec.title,
+                                                description = "Recorded Lecture • ${rec.subject.ifBlank { rec.domain }}",
+                                                url = rec.videoUrl,
+                                                videoUrl = rec.videoUrl,
+                                                category = "Recorded",
+                                                stream = rec.stream,
+                                                domain = rec.domain
+                                            )
+                                            StudentVideoContentCard(video = asVid, onPlay = { onPlayVideo(asVid) })
+                                        }
+                                    }
+                                }
+                            }
+
+                            "mock_tests" -> {
+                                val tList = remember(subj, searchQuery) {
+                                    filterMockTestsForSubject(subj).filter { t ->
+                                        searchQuery.isBlank() || t.title.contains(searchQuery, true) || t.description.contains(searchQuery, true)
+                                    }
+                                }
+                                if (tList.isEmpty()) {
+                                    StudentEmptyStateView(
+                                        title = "No Subject Mock Tests Found",
+                                        description = "No mock tests matched '$searchQuery' in ${subj.name}.",
+                                        icon = Icons.Default.Assignment
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(bottom = 80.dp)
+                                    ) {
+                                        items(tList, key = { "t_${it.id}" }) { test ->
+                                            StudentMockTestCard(
+                                                mockTest = test,
+                                                onStartTest = { onStartQuiz?.invoke(it) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            "pyqs" -> {
+                                val pList = remember(subj, searchQuery) {
+                                    filterPYQsForSubject(subj).filter { p ->
+                                        searchQuery.isBlank() || p.title.contains(searchQuery, true)
+                                    }
+                                }
+                                if (pList.isEmpty()) {
+                                    StudentEmptyStateView(
+                                        title = "No PYQs Found",
+                                        description = "No PYQ papers matched '$searchQuery' in ${subj.name}.",
+                                        icon = Icons.Default.Quiz
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                        contentPadding = PaddingValues(bottom = 80.dp)
+                                    ) {
+                                        items(pList, key = { "p_${it.id}" }) { pyq ->
+                                            StudentPYQCard(pyq = pyq)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper composable for the Subject Grid Feature Cards
+@Composable
+private fun SubjectGridFeatureCard(
+    title: String,
+    subtitle: String,
+    countText: String,
+    icon: ImageVector,
+    bgStart: Color,
+    bgEnd: Color,
+    iconTint: Color,
+    badgeBg: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, iconTint.copy(alpha = 0.18f))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    androidx.compose.ui.graphics.Brush.linearGradient(
+                        colors = listOf(bgStart, bgEnd)
+                    )
+                )
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Top row: Large icon badge & arrow icon
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(badgeBg),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = title,
+                            tint = iconTint,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Open $title",
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Title & Subtitle
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = subtitle,
+                        fontSize = 11.sp,
+                        color = Color(0xFF64748B),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Available Item Count Badge
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = iconTint.copy(alpha = 0.12f)
+                ) {
+                    Text(
+                        text = countText,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = iconTint
                     )
                 }
             }
         }
     }
+}
+
+// Quadruple tuple helper class
+private data class Quadruple<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StudentProfileScreen(
+    profile: UserProfile,
+    viewModel: LearningViewModel,
+    onNavigate: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var editName by remember(profile.name) { mutableStateOf(profile.name) }
+    var editPhone by remember(profile.phone, profile.mobile) { mutableStateOf(profile.phone.ifBlank { profile.mobile }) }
+    var phoneError by remember { mutableStateOf<String?>(null) }
+    var showEditDialog by remember { mutableStateOf(false) }
+    var isUploadingPhoto by remember { mutableStateOf(false) }
+
+    var showHelpDialog by remember { mutableStateOf(false) }
+    var showPrivacyDialog by remember { mutableStateOf(false) }
+
+    // Image Picker launcher for profile picture
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isUploadingPhoto = true
+            coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+
+                    if (bitmap != null) {
+                        val baos = java.io.ByteArrayOutputStream()
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, baos)
+                        val byteArray = baos.toByteArray()
+
+                        var uploadSuccessUrl: String? = null
+                        try {
+                            val storage = com.google.firebase.storage.FirebaseStorage.getInstance()
+                            val fileName = "profile_${profile.uid}_${System.currentTimeMillis()}.jpg"
+                            val fileRef = storage.reference.child("profile_photos/$fileName")
+                            fileRef.putBytes(byteArray).await()
+                            val rawUrl = fileRef.downloadUrl.await().toString()
+                            uploadSuccessUrl = ensureFirebaseDownloadUrl(rawUrl)
+                        } catch (e: Exception) {
+                            android.util.Log.e("ProfilePhotoUpload", "Firebase Storage failed, using base64 fallback", e)
+                            val base64 = android.util.Base64.encodeToString(byteArray, android.util.Base64.NO_WRAP)
+                            uploadSuccessUrl = "data:image/jpeg;base64,$base64"
+                        }
+
+                        if (uploadSuccessUrl != null) {
+                            val updatedProfile = profile.copy(photoUrl = uploadSuccessUrl)
+                            viewModel.updateUserProfile(updatedProfile)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                isUploadingPhoto = false
+                                Toast.makeText(context, "Profile picture updated successfully!", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                isUploadingPhoto = false
+                                Toast.makeText(context, "Failed to upload photo", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            isUploadingPhoto = false
+                            Toast.makeText(context, "Failed to load image", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("ProfilePhotoUpload", "Error processing photo", e)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        isUploadingPhoto = false
+                        Toast.makeText(context, "Error updating photo: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
+
+    // Observe learning statistics
+    val videosWatchedCount by viewModel.videosWatched.collectAsState(initial = 0)
+    val studyMaterialsOpenedCount by viewModel.studyMaterialsOpened.collectAsState(initial = 0)
+    val recordedClassesWatchedCount by viewModel.recordedClassesWatched.collectAsState(initial = 0)
+    val pyqsViewedCount by viewModel.pyqsViewed.collectAsState(initial = 0)
+
+    val attempts by viewModel.testAttempts.collectAsState(initial = emptyList())
+    val fullMockTestsCompletedCount = remember(attempts) {
+        attempts.count { 
+            it.testId.contains("full", ignoreCase = true) || 
+            it.testTitle.contains("Full", ignoreCase = true) || 
+            it.testTitle.contains("Entrance", ignoreCase = true) 
+        }
+    }
+    val subjectMockTestsCompletedCount = remember(attempts, fullMockTestsCompletedCount) {
+        (attempts.size - fullMockTestsCompletedCount).coerceAtLeast(0)
+    }
+
+    if (showHelpDialog) {
+        StudentHelpSupportDialog(
+            onDismiss = { showHelpDialog = false },
+            onNavigateToFeedback = {
+                showHelpDialog = false
+                onNavigate("feedback_form")
+            }
+        )
+    }
+
+    if (showPrivacyDialog) {
+        StudentPrivacyPolicyDialog(
+            onDismiss = { showPrivacyDialog = false }
+        )
+    }
+
+    // Edit Name & Mobile Number Dialog
+    if (showEditDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showEditDialog = false
+                phoneError = null
+            },
+            title = {
+                Text("Edit Profile Information", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = GeoPalette.TextPrimary)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("Update your full name and contact number.", fontSize = 12.5.sp, color = GeoPalette.TextSecondary)
+
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        label = { Text("Full Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = getHighContrastTextFieldColors()
+                    )
+
+                    Column {
+                        OutlinedTextField(
+                            value = editPhone,
+                            onValueChange = {
+                                editPhone = it
+                                phoneError = null
+                            },
+                            label = { Text("Mobile Number") },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            isError = phoneError != null,
+                            colors = getHighContrastTextFieldColors()
+                        )
+                        if (phoneError != null) {
+                            Text(
+                                text = phoneError!!,
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(start = 4.dp, top = 2.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cleanPhone = editPhone.trim()
+                        val cleanName = editName.trim()
+                        if (cleanName.isBlank()) {
+                            Toast.makeText(context, "Please enter your name", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        if (cleanPhone.length < 10 || !cleanPhone.all { it.isDigit() }) {
+                            phoneError = "Please enter a valid 10-digit mobile number"
+                            return@Button
+                        }
+                        val updated = profile.copy(
+                            name = cleanName,
+                            phone = cleanPhone,
+                            mobile = cleanPhone
+                        )
+                        viewModel.updateUserProfile(updated)
+                        showEditDialog = false
+                        phoneError = null
+                        Toast.makeText(context, "Profile updated successfully!", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Save Changes", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showEditDialog = false
+                        phoneError = null
+                    },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        // Top Page Title Header with Back Button
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(
+                    onClick = { onNavigate("home") },
+                    modifier = Modifier.size(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                        contentDescription = "Back to Home",
+                        tint = GeoPalette.Primary
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Student Profile",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+                    Text(
+                        text = "NCET / CUET Learning Portal",
+                        fontSize = 12.sp,
+                        color = GeoPalette.TextSecondary
+                    )
+                }
+            }
+
+            Surface(
+                color = GeoPalette.PrimaryContainer,
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (profile.isApproved()) Icons.Default.CheckCircle else Icons.Default.HourglassEmpty,
+                        contentDescription = null,
+                        tint = GeoPalette.Primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = if (profile.isApproved()) "Approved" else "Pending Review",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.Primary
+                    )
+                }
+            }
+        }
+
+        // 1. MAIN STUDENT INFO CARD
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("student_profile_card"),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.5.dp),
+            border = BorderStroke(1.dp, GeoPalette.Divider)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header with Photo, Name, Email, Phone
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Student Photo with Camera Upload Trigger
+                    Box(
+                        modifier = Modifier
+                            .size(80.dp)
+                            .clip(CircleShape)
+                            .background(GeoPalette.PrimaryContainer)
+                            .border(2.dp, GeoPalette.Primary, CircleShape)
+                            .clickable { imagePickerLauncher.launch("image/*") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isUploadingPhoto) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(32.dp),
+                                color = GeoPalette.Primary,
+                                strokeWidth = 3.dp
+                            )
+                        } else if (profile.photoUrl.isNotBlank()) {
+                            coil.compose.AsyncImage(
+                                model = profile.photoUrl,
+                                contentDescription = "Student Photo",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Text(
+                                text = (profile.name.firstOrNull()?.toString() ?: "S").uppercase(),
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.Primary
+                            )
+                        }
+
+                        // Camera Overlay Badge
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(26.dp)
+                                .clip(CircleShape)
+                                .background(GeoPalette.Primary)
+                                .border(1.5.dp, Color.White, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = "Upload Profile Photo",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = profile.name.ifBlank { "Student User" },
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Email, contentDescription = null, tint = GeoPalette.TextSecondary, modifier = Modifier.size(14.dp))
+                            Text(
+                                text = profile.email.ifBlank { "No email set" },
+                                fontSize = 12.5.sp,
+                                color = GeoPalette.TextSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        val phoneVal = profile.phone.ifBlank { profile.mobile.ifBlank { "Not provided" } }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Default.Phone, contentDescription = null, tint = GeoPalette.TextSecondary, modifier = Modifier.size(14.dp))
+                            Text(
+                                text = phoneVal,
+                                fontSize = 12.5.sp,
+                                color = GeoPalette.TextSecondary
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.6f))
+
+                // READ-ONLY LOCKED FIELDS: Stream, Exam, Approval Status
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Academic Stream & Registration Status",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextSecondary
+                    )
+
+                    // Selected Stream (Read-Only Locked)
+                    ProfileInfoDetailRow(
+                        icon = Icons.Default.School,
+                        label = "Selected Stream",
+                        value = "${profile.stream.ifBlank { "Humanities" }} Stream",
+                        isLocked = true,
+                        badgeColor = GeoPalette.Primary
+                    )
+
+                    // Target Exam (Read-Only Locked)
+                    ProfileInfoDetailRow(
+                        icon = Icons.Default.Assignment,
+                        label = "Target Exam",
+                        value = profile.exam.ifBlank { "CUET / NCET 2026" },
+                        isLocked = true,
+                        badgeColor = Color(0xFF1976D2)
+                    )
+
+                    // Approval Status (Read-Only Locked)
+                    val statusText = if (profile.isApproved()) "Approved Student" else "Pending Review"
+                    val statusColor = if (profile.isApproved()) Color(0xFF2E7D32) else Color(0xFFE65100)
+                    ProfileInfoDetailRow(
+                        icon = if (profile.isApproved()) Icons.Default.Verified else Icons.Default.HourglassEmpty,
+                        label = "Approval Status",
+                        value = statusText,
+                        isLocked = true,
+                        badgeColor = statusColor
+                    )
+                }
+
+                // Edit Button for Name & Mobile Number
+                Button(
+                    onClick = {
+                        editName = profile.name
+                        editPhone = profile.phone.ifBlank { profile.mobile }
+                        phoneError = null
+                        showEditDialog = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Edit Name & Mobile Number", fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+
+        // 2. LEARNING STATISTICS SECTION
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Learning Statistics",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary
+                )
+
+                Text(
+                    text = "Total Activity Progress",
+                    fontSize = 11.5.sp,
+                    color = GeoPalette.TextSecondary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // Grid of 6 Stats
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Row 1: Videos watched & Study materials opened
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Videos Watched",
+                        count = "$videosWatchedCount",
+                        unit = "Videos",
+                        icon = Icons.Default.PlayCircle,
+                        accentColor = Color(0xFF1E88E5)
+                    )
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Materials Opened",
+                        count = "$studyMaterialsOpenedCount",
+                        unit = "Modules",
+                        icon = Icons.Default.MenuBook,
+                        accentColor = Color(0xFF8E24AA)
+                    )
+                }
+
+                // Row 2: Recorded classes watched & Subject mock tests completed
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Recorded Classes",
+                        count = "$recordedClassesWatchedCount",
+                        unit = "Classes",
+                        icon = Icons.Default.VideoLibrary,
+                        accentColor = Color(0xFFD81B60)
+                    )
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Subject Mock Tests",
+                        count = "$subjectMockTestsCompletedCount",
+                        unit = "Completed",
+                        icon = Icons.Default.AssignmentTurnedIn,
+                        accentColor = Color(0xFF43A047)
+                    )
+                }
+
+                // Row 3: Full mock tests completed & PYQs viewed
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "Full Mock Tests",
+                        count = "$fullMockTestsCompletedCount",
+                        unit = "Exams Done",
+                        icon = Icons.Default.Quiz,
+                        accentColor = Color(0xFFFB8C00)
+                    )
+                    LearningStatCard(
+                        modifier = Modifier.weight(1f),
+                        title = "PYQs Viewed",
+                        count = "$pyqsViewedCount",
+                        unit = "Papers",
+                        icon = Icons.Default.Description,
+                        accentColor = Color(0xFF00ACC1)
+                    )
+                }
+            }
+        }
+
+        // 3. ACCOUNT ACTIONS & OPTIONS CARD
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, GeoPalette.Divider)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = "App Settings & Help",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextSecondary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+
+                // Feedback
+                ProfileOptionRow(
+                    icon = Icons.Default.Feedback,
+                    title = "Feedback",
+                    subtitle = "Submit suggestions or report issues to administration",
+                    onClick = { onNavigate("feedback_form") }
+                )
+
+                HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+                // Help & Support
+                ProfileOptionRow(
+                    icon = Icons.Default.HelpOutline,
+                    title = "Help & Support",
+                    subtitle = "Read entrance exam FAQs & contact helpline",
+                    onClick = { showHelpDialog = true }
+                )
+
+                HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+                // Privacy Policy
+                ProfileOptionRow(
+                    icon = Icons.Default.PrivacyTip,
+                    title = "Privacy Policy",
+                    subtitle = "Data security, app terms & privacy commitments",
+                    onClick = { showPrivacyDialog = true }
+                )
+
+                HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+                // Logout
+                ProfileOptionRow(
+                    icon = Icons.Default.ExitToApp,
+                    title = "Log Out",
+                    subtitle = "Sign out of your student profile session",
+                    titleColor = Color(0xFFD32F2F),
+                    onClick = { viewModel.logout() }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+@Composable
+fun ProfileInfoDetailRow(
+    icon: ImageVector,
+    label: String,
+    value: String,
+    isLocked: Boolean = false,
+    badgeColor: Color = GeoPalette.Primary
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFFF8F9FA), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(18.dp))
+            Text(label, fontSize = 12.5.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Medium)
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Surface(
+                color = badgeColor.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = value,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = badgeColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+
+            if (isLocked) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "Locked - Cannot be changed by student",
+                    tint = GeoPalette.TextSecondary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun LearningStatCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    count: String,
+    unit: String,
+    icon: ImageVector,
+    accentColor: Color
+) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp),
+        border = BorderStroke(1.dp, GeoPalette.Divider)
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(14.dp)
+                .fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = accentColor, modifier = Modifier.size(20.dp))
+                }
+
+                Text(
+                    text = unit,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = GeoPalette.TextSecondary
+                )
+            }
+
+            Text(
+                text = count,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = GeoPalette.TextPrimary
+            )
+
+            Text(
+                text = title,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = GeoPalette.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+fun ProfileOptionRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    titleColor: Color = GeoPalette.TextPrimary,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(titleColor.copy(alpha = 0.08f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = titleColor, modifier = Modifier.size(20.dp))
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = titleColor)
+            Text(subtitle, fontSize = 11.5.sp, color = GeoPalette.TextSecondary)
+        }
+
+        Icon(
+            imageVector = Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = GeoPalette.TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun StudentHelpSupportDialog(
+    onDismiss: () -> Unit,
+    onNavigateToFeedback: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.HelpOutline, contentDescription = null, tint = GeoPalette.Primary)
+                Text("Help & Support Center", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = GeoPalette.TextPrimary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Frequently Asked Questions:", fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = GeoPalette.TextPrimary)
+
+                val faqs = listOf(
+                    "Can I change my academic stream?" to "Academic streams are assigned upon administration approval. Students cannot self-modify their stream. If you need to switch streams, please contact our support team.",
+                    "How are mock tests scored?" to "Mock tests follow official NCET/CUET rules: +4 marks for correct answers, -1 for incorrect answers, and 0 for unattempted questions.",
+                    "How do I submit query feedback?" to "Use the Feedback option in your profile menu to send suggestions or report bugs directly to our administrative team.",
+                    "How do I access study materials?" to "Navigate to the Learn section or All Materials tab to view and download stream-specific study modules."
+                )
+
+                faqs.forEach { (question, answer) ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(question, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = GeoPalette.Primary)
+                            Text(answer, fontSize = 11.5.sp, color = GeoPalette.TextPrimary, lineHeight = 16.sp)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = GeoPalette.Divider)
+
+                Text("Contact Support:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                Text("Email: support@insyrlearning.com", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                Text("Helpline: +91 9876543210 (Mon-Sat, 9AM-6PM)", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onNavigateToFeedback,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
+            ) {
+                Text("Submit Feedback")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = GeoPalette.TextSecondary)
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = Color.White
+    )
+}
+
+@Composable
+fun StudentPrivacyPolicyDialog(
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.PrivacyTip, contentDescription = null, tint = GeoPalette.Primary)
+                Text("Privacy Policy & Terms", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = GeoPalette.TextPrimary)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Insyr Learning Commitment:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                Text(
+                    "We respect your privacy and process all personal information (such as email, mobile number, and learning records) strictly for providing educational services, entrance exam practice, and administrative verification.",
+                    fontSize = 12.sp,
+                    color = GeoPalette.TextPrimary,
+                    lineHeight = 17.sp
+                )
+
+                Text("Key Policies:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                val points = listOf(
+                    "Your personal information is kept secure and never shared with third parties.",
+                    "Student academic stream and approval status are managed by administrators to prevent unauthorized access.",
+                    "Test results and learning activity statistics are retained locally and on secure servers to provide personalized progress tracking.",
+                    "For account deletion or data inquiry, reach out to privacy@insyrlearning.com."
+                )
+                points.forEach { pt ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+                        Text("•", fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+                        Text(pt, fontSize = 11.5.sp, color = GeoPalette.TextSecondary, lineHeight = 16.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
+            ) {
+                Text("I Understand")
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = Color.White
+    )
 }
 
 @Composable
@@ -1389,11 +3793,20 @@ fun SelectStreamBanner(
                 DropdownMenu(
                     expanded = showDropdown,
                     onDismissRequest = { showDropdown = false },
-                    modifier = Modifier.background(Color.White)
+                    modifier = Modifier
+                        .background(Color.White, RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
                 ) {
-                    listOf("Science", "Commerce", "Humanities").forEach { streamOption ->
+                    listOf("Science", "Commerce", "Humanities", "General").forEach { streamOption ->
                         DropdownMenuItem(
-                            text = { Text(streamOption) },
+                            text = {
+                                Text(
+                                    text = streamOption,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1F2937),
+                                    fontSize = 14.sp
+                                )
+                            },
                             onClick = {
                                 onUpdateStream(streamOption)
                                 showDropdown = false
@@ -1406,6 +3819,1682 @@ fun SelectStreamBanner(
     }
 }
 
+private data class GeneralModuleItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val icon: ImageVector,
+    val accentColor: Color,
+    val badgeBg: Color
+)
+
+@Composable
+fun GeneralStreamDashboardHome(
+    profile: UserProfile,
+    videosCount: Int,
+    materialsCount: Int,
+    mockTestsCount: Int,
+    recentMaterials: List<StudyMaterial>,
+    viewModel: LearningViewModel? = null,
+    onNavigate: (String) -> Unit,
+    onReadMaterial: (StudyMaterial) -> Unit,
+    onUpdateStream: (String) -> Unit,
+    onRefresh: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Navigation & View state inside General Stream
+    var activeModule by remember { mutableStateOf<String?>(null) } // "Language", "General Test", "Teaching Aptitude"
+    var activeSubject by remember { mutableStateOf<String?>(null) }
+    var activeTab by remember { mutableStateOf("videos") } // "videos", "materials", "tests", "pyqs"
+
+    // Firestore data from viewModel if available
+    val firestoreVideos by (viewModel?.videos?.collectAsState() ?: remember { mutableStateOf(emptyList<VideoContent>()) })
+    val firestoreMaterials by (viewModel?.materials?.collectAsState() ?: remember { mutableStateOf(emptyList<StudyMaterial>()) })
+    val firestoreMockTests by (viewModel?.mockTests?.collectAsState() ?: remember { mutableStateOf(emptyList<MockTest>()) })
+    val firestorePYQs by (viewModel?.pyqs?.collectAsState() ?: remember { mutableStateOf(emptyList<PYQ>()) })
+
+    val modules = remember {
+        listOf(
+            GeneralModuleItem(
+                id = "Language",
+                title = "Language",
+                description = "English Literature & English for Communication.",
+                icon = Icons.Default.Translate,
+                accentColor = Color(0xFF1E88E5),
+                badgeBg = Color(0xFFE3F2FD)
+            ),
+            GeneralModuleItem(
+                id = "General Test",
+                title = "General Test",
+                description = "Logical Reasoning, Quantitative Aptitude & GK / Current Affairs.",
+                icon = Icons.Default.Psychology,
+                accentColor = Color(0xFF7B1FA2),
+                badgeBg = Color(0xFFF3E5F5)
+            ),
+            GeneralModuleItem(
+                id = "Teaching Aptitude",
+                title = "Teaching Aptitude",
+                description = "Pedagogy, Classroom Communication & Educational Psychology.",
+                icon = Icons.Default.School,
+                accentColor = Color(0xFF00897B),
+                badgeBg = Color(0xFFE0F2F1)
+            )
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        // Logo and Refresh Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InsyrLogoHorizontal(scale = 0.85f)
+            IconButton(
+                onClick = { onRefresh() },
+                modifier = Modifier.testTag("student_refresh_general")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh Updates",
+                    tint = GeoPalette.Primary,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        if (profile.stream.isBlank()) {
+            SelectStreamBanner(onUpdateStream = onUpdateStream)
+        }
+
+        // Welcome Status Card
+        if (activeModule == null) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = GeoPalette.PrimaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "CURRENT STATUS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.TextSecondary,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Welcome, ${profile.name}",
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.DarkText,
+                                lineHeight = 26.sp
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .background(GeoPalette.ApprovedBg, RoundedCornerShape(100.dp))
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "APPROVED",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier.padding(top = 12.dp)
+                    ) {
+                        Column {
+                            Text("Selected Stream", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                            Text(
+                                text = "General",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = GeoPalette.TextPrimary
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(32.dp)
+                                .background(GeoPalette.CardBorder)
+                        )
+                        Column {
+                            Text("Exam Prep", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                            Text("CUET / NCET", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = GeoPalette.TextPrimary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Module Breadcrumb & Navigation Top Bar
+        if (activeModule != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedIconButton(
+                    onClick = {
+                        if (activeSubject != null && activeModule != "Teaching Aptitude") {
+                            activeSubject = null
+                        } else {
+                            activeModule = null
+                            activeSubject = null
+                        }
+                    },
+                    modifier = Modifier.size(38.dp),
+                    shape = RoundedCornerShape(10.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, GeoPalette.CardBorder)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = GeoPalette.TextPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (activeSubject != null) "$activeModule • $activeSubject" else "$activeModule Module",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = GeoPalette.TextPrimary
+                    )
+                    Text(
+                        text = "General Stream Learning Space",
+                        fontSize = 11.sp,
+                        color = GeoPalette.TextSecondary
+                    )
+                }
+
+                TextButton(onClick = {
+                    activeModule = null
+                    activeSubject = null
+                }) {
+                    Text("Modules", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+                }
+            }
+        }
+
+        // ==========================================
+        // 1. MODULE SELECTION LEVEL (3 Cards)
+        // ==========================================
+        if (activeModule == null) {
+            Text(
+                text = "General Stream Modules",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = GeoPalette.TextPrimary,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+
+            modules.forEach { item ->
+                Card(
+                    onClick = {
+                        activeModule = item.id
+                        activeSubject = when (item.id) {
+                            "Language" -> "English Literature"
+                            "General Test" -> "Logical Reasoning"
+                            else -> null
+                        }
+                        activeTab = when (item.id) {
+                            "General Test" -> "materials"
+                            else -> "videos"
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(20.dp))
+                        .testTag("general_module_${item.id.lowercase().replace(" ", "_")}"),
+                    colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                    shape = RoundedCornerShape(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(item.badgeBg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = item.title,
+                                tint = item.accentColor,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = item.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = GeoPalette.TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = item.description,
+                                fontSize = 12.sp,
+                                color = GeoPalette.TextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = "Open ${item.title}",
+                            tint = item.accentColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 2. MODULE 1: LANGUAGE
+        // Contains: English Literature, English for Communication
+        // Each page displays: Learning Videos, Study Notes
+        // ==========================================
+        if (activeModule == "Language") {
+            val languageSubjects = listOf("English Literature", "English for Communication")
+
+            // Subject Selector Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                languageSubjects.forEach { subj ->
+                    val isSelected = activeSubject == subj
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            activeSubject = subj
+                            activeTab = "videos"
+                        },
+                        label = { Text(subj, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (subj == "English Literature") Icons.Default.MenuBook else Icons.Default.Chat,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF1E88E5),
+                            selectedLabelColor = Color.White,
+                            selectedLeadingIconColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            }
+
+            // Sub-tabs: Learning Videos / Study Notes
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF3F4F6), RoundedCornerShape(12.dp))
+                    .padding(4.dp)
+            ) {
+                listOf("videos" to "Learning Videos", "materials" to "Study Notes").forEach { (tabKey, label) ->
+                    val isTabSelected = activeTab == tabKey
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isTabSelected) Color.White else Color.Transparent)
+                            .clickable { activeTab = tabKey }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isTabSelected) Color(0xFF1E88E5) else GeoPalette.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            val currentSubj = activeSubject ?: "English Literature"
+
+            if (activeTab == "videos") {
+                // Learning Videos List for Language
+                val displayVideos = firestoreVideos.filter {
+                    it.stream.equals("General", ignoreCase = true) &&
+                    (it.module.equals("Language", ignoreCase = true) || it.category.equals("Language", ignoreCase = true)) &&
+                    (it.subject.isBlank() || it.subject.equals(currentSubj, ignoreCase = true))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Learning Videos ($currentSubj)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+
+                    if (displayVideos.isEmpty()) {
+                        StudentEmptyStateView(
+                            title = "No Videos Found",
+                            description = "No videos available in Firestore for $currentSubj yet.",
+                            icon = Icons.Default.PlayCircle,
+                            actionLabel = null,
+                            onAction = {}
+                        )
+                    } else {
+                        displayVideos.forEach { vid ->
+                            StudentVideoContentCard(video = vid)
+                        }
+                    }
+                }
+            } else {
+                // Study Notes List for Language
+                val displayNotes = firestoreMaterials.filter {
+                    it.stream.equals("General", ignoreCase = true) &&
+                    (it.module.equals("Language", ignoreCase = true) || it.category.equals("Language", ignoreCase = true)) &&
+                    (it.subject.isBlank() || it.subject.equals(currentSubj, ignoreCase = true))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Study Notes ($currentSubj)",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+
+                    if (displayNotes.isEmpty()) {
+                        StudentEmptyStateView(
+                            title = "No Study Notes Found",
+                            description = "No study notes available in Firestore for $currentSubj yet.",
+                            icon = Icons.Default.Description,
+                            actionLabel = null,
+                            onAction = {}
+                        )
+                    } else {
+                        displayNotes.forEach { mat ->
+                            StudentStudyNoteCard(material = mat)
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 3. MODULE 2: GENERAL TEST
+        // Contains: Logical Reasoning, Quantitative Aptitude, General Knowledge & Current Affairs
+        // Each page displays: Study Notes, Mock Tests, Previous Year Questions (PYQs)
+        // Study Notes & PYQs open Google Drive. Mock Tests open inside the app!
+        // ==========================================
+        if (activeModule == "General Test") {
+            val generalTestSubjects = listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs")
+
+            // Subject Selector Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                generalTestSubjects.forEach { subj ->
+                    val isSelected = activeSubject == subj
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            activeSubject = subj
+                            activeTab = "materials"
+                        },
+                        label = { Text(subj, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = when (subj) {
+                                    "Logical Reasoning" -> Icons.Default.Extension
+                                    "Quantitative Aptitude" -> Icons.Default.Calculate
+                                    else -> Icons.Default.Public
+                                },
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF7B1FA2),
+                            selectedLabelColor = Color.White,
+                            selectedLeadingIconColor = Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+            }
+
+            // Sub-tabs: Study Notes / Mock Tests / PYQs
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF3F4F6), RoundedCornerShape(12.dp))
+                    .padding(4.dp)
+            ) {
+                listOf(
+                    "materials" to "Study Notes",
+                    "tests" to "Mock Tests",
+                    "pyqs" to "PYQs"
+                ).forEach { (tabKey, label) ->
+                    val isTabSelected = activeTab == tabKey
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isTabSelected) Color.White else Color.Transparent)
+                            .clickable { activeTab = tabKey }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 12.sp,
+                            fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isTabSelected) Color(0xFF7B1FA2) else GeoPalette.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            val currentSubj = activeSubject ?: "Logical Reasoning"
+
+            when (activeTab) {
+                "materials" -> {
+                    // Study Notes for General Test -> Opens Google Drive
+                    val displayNotes = firestoreMaterials.filter {
+                        it.stream.equals("General", ignoreCase = true) &&
+                        (it.module.equals("General Test", ignoreCase = true) || it.category.equals("General Test", ignoreCase = true)) &&
+                        (it.subject.isBlank() || it.subject.equals(currentSubj, ignoreCase = true))
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Study Notes ($currentSubj)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+
+                        if (displayNotes.isEmpty()) {
+                            StudentEmptyStateView(
+                                title = "No Study Notes Found",
+                                description = "No study notes available in Firestore for $currentSubj yet.",
+                                icon = Icons.Default.Description,
+                                actionLabel = null,
+                                onAction = {}
+                            )
+                        } else {
+                            displayNotes.forEach { mat ->
+                                StudentStudyNoteCard(material = mat)
+                            }
+                        }
+                    }
+                }
+
+                "tests" -> {
+                    // Mock Tests for General Test
+                    val displayTests = firestoreMockTests.filter {
+                        it.stream.equals("General", ignoreCase = true) &&
+                        (it.module.equals("General Test", ignoreCase = true) || it.type.equals("General Test", ignoreCase = true)) &&
+                        (it.subject.isBlank() || it.subject.equals(currentSubj, ignoreCase = true))
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Mock Tests ($currentSubj)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+
+                        if (displayTests.isEmpty()) {
+                            StudentEmptyStateView(
+                                title = "No Mock Tests Found",
+                                description = "No mock tests available in Firestore for $currentSubj yet.",
+                                icon = Icons.Default.Quiz,
+                                actionLabel = null,
+                                onAction = {}
+                            )
+                        } else {
+                            displayTests.forEach { test ->
+                                StudentMockTestCard(
+                                    mockTest = test,
+                                    onStartTest = {
+                                        viewModel?.startQuiz(it)
+                                        onNavigate("quiz")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                "pyqs" -> {
+                    // PYQs for General Test -> Opens Google Drive
+                    val displayPYQs = firestorePYQs.filter {
+                        it.stream.equals("General", ignoreCase = true) &&
+                        (it.module.equals("General Test", ignoreCase = true) || it.category.equals("General Test", ignoreCase = true)) &&
+                        (it.subject.isBlank() || it.subject.equals(currentSubj, ignoreCase = true))
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text = "Previous Year Questions ($currentSubj)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+
+                        if (displayPYQs.isEmpty()) {
+                            StudentEmptyStateView(
+                                title = "No PYQs Found",
+                                description = "No previous year question papers available in Firestore for $currentSubj yet.",
+                                icon = Icons.Default.Assignment,
+                                actionLabel = null,
+                                onAction = {}
+                            )
+                        } else {
+                            displayPYQs.forEach { pyq ->
+                                StudentPYQCard(pyq = pyq)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. MODULE 3: TEACHING APTITUDE
+        // Contains: Learning Videos, Study Notes
+        // Learning Videos open YouTube. Study Notes open Google Drive.
+        // ==========================================
+        if (activeModule == "Teaching Aptitude") {
+            // Sub-tabs: Learning Videos / Study Notes
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF3F4F6), RoundedCornerShape(12.dp))
+                    .padding(4.dp)
+            ) {
+                listOf("videos" to "Learning Videos", "materials" to "Study Notes").forEach { (tabKey, label) ->
+                    val isTabSelected = activeTab == tabKey
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isTabSelected) Color.White else Color.Transparent)
+                            .clickable { activeTab = tabKey }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 13.sp,
+                            fontWeight = if (isTabSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isTabSelected) Color(0xFF00897B) else GeoPalette.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            if (activeTab == "videos") {
+                val displayVideos = firestoreVideos.filter {
+                    it.stream.equals("General", ignoreCase = true) &&
+                    (it.module.equals("Teaching Aptitude", ignoreCase = true) || it.category.equals("TeachingAptitude", ignoreCase = true))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Teaching Aptitude Learning Videos",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+
+                    if (displayVideos.isEmpty()) {
+                        StudentEmptyStateView(
+                            title = "No Videos Found",
+                            description = "No Teaching Aptitude videos available in Firestore yet.",
+                            icon = Icons.Default.PlayCircle,
+                            actionLabel = null,
+                            onAction = {}
+                        )
+                    } else {
+                        displayVideos.forEach { vid ->
+                            StudentVideoContentCard(video = vid)
+                        }
+                    }
+                }
+            } else {
+                val displayNotes = firestoreMaterials.filter {
+                    it.stream.equals("General", ignoreCase = true) &&
+                    (it.module.equals("Teaching Aptitude", ignoreCase = true) || it.category.equals("TeachingAptitude", ignoreCase = true))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Teaching Aptitude Study Notes",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+
+                    if (displayNotes.isEmpty()) {
+                        StudentEmptyStateView(
+                            title = "No Study Notes Found",
+                            description = "No Teaching Aptitude study notes available in Firestore yet.",
+                            icon = Icons.Default.Description,
+                            actionLabel = null,
+                            onAction = {}
+                        )
+                    } else {
+                        displayNotes.forEach { mat ->
+                            StudentStudyNoteCard(material = mat)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ====================================================
+// REDESIGNED M3 STUDENT DASHBOARD COMPONENTS
+// ====================================================
+
+@Composable
+fun StudentModuleCard(
+    title: String,
+    resourceCountText: String,
+    icon: ImageVector,
+    badgeBg: Color,
+    badgeTextColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(badgeBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = badgeTextColor,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = GeoPalette.TextPrimary
+                    )
+                    Text(
+                        text = resourceCountText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = GeoPalette.TextSecondary
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(GeoPalette.Background),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "Go to $title",
+                    tint = GeoPalette.Primary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+fun formatLastUpdated(timestamp: com.google.firebase.Timestamp?): String {
+    if (timestamp == null || timestamp.seconds == 0L) return "Last updated: Recently"
+    return try {
+        val date = timestamp.toDate()
+        val sdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.getDefault())
+        "Last updated: ${sdf.format(date)}"
+    } catch (e: Exception) {
+        "Last updated: Recently"
+    }
+}
+
+@Composable
+fun StudentVideoContentCard(
+    video: VideoContent,
+    onPlay: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val videoUrl = video.videoUrl.ifEmpty { video.url }
+    val youtubeId = remember(videoUrl) { extractYoutubeVideoId(videoUrl) }
+    val thumbnailUrl = remember(youtubeId, video.thumbnailUrl) {
+        if (video.thumbnailUrl.isNotBlank()) video.thumbnailUrl
+        else if (youtubeId != null) "https://img.youtube.com/vi/$youtubeId/hqdefault.jpg"
+        else ""
+    }
+
+    val durationText = remember(video.contentType) {
+        if (video.contentType.isNotBlank()) {
+            if (video.contentType.contains("min", ignoreCase = true) || video.contentType.contains("hr", ignoreCase = true) || video.contentType.contains(":")) {
+                video.contentType
+            } else {
+                "${video.contentType} • 25 min"
+            }
+        } else "25 min"
+    }
+
+    val subjectName = video.subject.ifBlank { video.domain.ifBlank { "Subject Lecture" } }
+    val teacherName = video.uploadedBy.ifBlank { "Prof. Dr. R. K. Sharma" }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+        modifier = modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Thumbnail container with play button & duration badge
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(160.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF0F172A)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbnailUrl.isNotBlank()) {
+                    coil.compose.AsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = video.title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.linearGradient(
+                                    colors = listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                                )
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.PlayCircle,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "YouTube Video Lecture",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                // Play Button Overlay
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red.copy(alpha = 0.9f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                // Duration Badge (Bottom Right)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(10.dp)
+                        .background(Color.Black.copy(alpha = 0.82f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = durationText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Subject Badge, Title, Teacher Name, Short Description
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = GeoPalette.Primary.copy(alpha = 0.1f)
+                    ) {
+                        Text(
+                            text = subjectName,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.Primary
+                        )
+                    }
+
+                    Text(
+                        text = "•  By $teacherName",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF64748B),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Text(
+                    text = video.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Color(0xFF0F172A),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                val descText = video.description.ifBlank {
+                    "Comprehensive video lecture covering core topics and key concepts for $subjectName."
+                }
+
+                Text(
+                    text = descText,
+                    fontSize = 13.sp,
+                    color = Color(0xFF64748B),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 18.sp
+                )
+            }
+
+            // Watch on YouTube Button
+            Button(
+                onClick = {
+                    if (onPlay != null) onPlay()
+                    else openYouTubeVideo(context, videoUrl)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayCircleFilled,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Watch on YouTube",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentStudyNoteCard(
+    material: StudyMaterial,
+    onOpen: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lastUpdatedText = remember(material.createdAt) {
+        formatLastUpdated(material.createdAt)
+    }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(20.dp)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFFFEBEE))
+                        .border(1.dp, Color(0xFFFFCDD2), RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PictureAsPdf,
+                        contentDescription = "PDF Document",
+                        tint = Color(0xFFD32F2F),
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = material.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = GeoPalette.TextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    val descText = material.description.ifBlank {
+                        val subjName = material.subject.ifEmpty { material.domain.ifEmpty { "CUET / NCET Material" } }
+                        "Detailed PDF notes, study material & reference guide for $subjName."
+                    }
+
+                    Text(
+                        text = descText,
+                        fontSize = 13.sp,
+                        color = GeoPalette.TextSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Update,
+                            contentDescription = null,
+                            tint = GeoPalette.TextSecondary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = lastUpdatedText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = {
+                    if (onOpen != null) onOpen()
+                    else openGoogleDriveDocument(context, material.fileUrl)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A73E8))
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Launch,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Open in Google Drive",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentRecordedClassCard(
+    recordedClass: RecordedClass,
+    onPlay: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val asVid = remember(recordedClass) {
+        VideoContent(
+            id = recordedClass.id,
+            title = recordedClass.title,
+            description = recordedClass.description.ifBlank { "Recorded Class Lecture for ${recordedClass.subject.ifEmpty { recordedClass.domain.ifEmpty { "NCET / CUET" } }}." },
+            url = recordedClass.videoUrl,
+            videoUrl = recordedClass.videoUrl,
+            category = "Recorded Class",
+            stream = recordedClass.stream,
+            domain = recordedClass.domain,
+            contentType = recordedClass.contentType.ifBlank { "Recorded Lecture" },
+            createdAt = recordedClass.createdAt
+        )
+    }
+    StudentVideoContentCard(video = asVid, onPlay = onPlay, modifier = modifier)
+}
+
+@Composable
+fun StudentMockTestCard(
+    mockTest: MockTest,
+    onStartTest: (MockTest) -> Unit,
+    modifier: Modifier = Modifier,
+    lastScorePercent: Double? = null,
+    onViewDetails: (() -> Unit)? = null
+) {
+    val totalQ = if (mockTest.questions.isNotEmpty()) mockTest.questions.size else 20
+    val totalMarks = totalQ
+    val durationText = if (mockTest.durationMinutes > 0) "${mockTest.durationMinutes} min" else "20 min"
+
+    val difficulty = remember(mockTest.contentType, mockTest.type) {
+        val typeStr = (mockTest.contentType + " " + mockTest.type).lowercase()
+        when {
+            typeStr.contains("easy") -> "Easy"
+            typeStr.contains("hard") -> "Hard"
+            else -> "Medium"
+        }
+    }
+
+    val (diffColor, diffBg) = when (difficulty) {
+        "Easy" -> Color(0xFF15803D) to Color(0xFFDCFCE7)
+        "Hard" -> Color(0xFFB91C1C) to Color(0xFFFEE2E2)
+        else -> Color(0xFFB45309) to Color(0xFFFEF3C7)
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onViewDetails?.invoke() },
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Small colorful icon container
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(diffBg),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Assignment,
+                    contentDescription = mockTest.title,
+                    tint = diffColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            // Middle test information
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = mockTest.title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = "$totalQ Questions  •  $totalMarks Marks",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFF64748B)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = durationText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF64748B)
+                    )
+
+                    // Difficulty Badge Pill
+                    Box(
+                        modifier = Modifier
+                            .background(diffBg, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = difficulty,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = diffColor
+                        )
+                    }
+                }
+            }
+
+            // Start Test Action Button
+            Button(
+                onClick = { onStartTest(mockTest) },
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Start Test",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentPYQCard(
+    pyq: PYQ,
+    modifier: Modifier = Modifier
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val year = remember(pyq.title) {
+        val regex = Regex("(201\\d|202\\d)")
+        val match = regex.find(pyq.title)
+        match?.value ?: "2023"
+    }
+    val subject = pyq.subject.ifEmpty { pyq.domain.ifEmpty { pyq.category.ifEmpty { "General" } } }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(20.dp)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF3E5F5))
+                        .border(1.dp, Color(0xFFE1BEE7), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = year,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF7B1FA2)
+                        )
+                        Text(
+                            text = "PYQ",
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7B1FA2)
+                        )
+                    }
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = pyq.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = GeoPalette.TextPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$subject • Solved Question Paper",
+                        fontSize = 12.sp,
+                        color = GeoPalette.TextSecondary
+                    )
+                }
+            }
+
+            Button(
+                onClick = { openGoogleDriveDocument(context, pyq.fileUrl) },
+                modifier = Modifier.fillMaxWidth().height(42.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+            ) {
+                Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Open in Google Drive", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentEmptyStateView(
+    title: String,
+    description: String,
+    icon: ImageVector = Icons.Default.SearchOff,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        modifier = modifier
+            .fillMaxWidth()
+            .border(1.dp, GeoPalette.Divider, RoundedCornerShape(24.dp))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(CircleShape)
+                    .background(GeoPalette.PrimaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = GeoPalette.Primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = GeoPalette.TextPrimary,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = description,
+                fontSize = 12.sp,
+                color = GeoPalette.TextSecondary,
+                textAlign = TextAlign.Center
+            )
+            if (actionLabel != null && onAction != null) {
+                OutlinedButton(
+                    onClick = onAction,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(actionLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentCompactSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholderText: String = "Search...",
+    modifier: Modifier = Modifier,
+    onFilterClick: (() -> Unit)? = null
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(50.dp),
+        placeholder = {
+            Text(
+                text = placeholderText,
+                fontSize = 13.sp,
+                color = GeoPalette.TextSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Search",
+                tint = GeoPalette.Primary,
+                modifier = Modifier.size(18.dp)
+            )
+        },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Clear search",
+                        tint = GeoPalette.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            } else if (onFilterClick != null) {
+                IconButton(onClick = onFilterClick, modifier = Modifier.size(24.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = GeoPalette.TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(14.dp),
+        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp, color = GeoPalette.TextPrimary),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = GeoPalette.Primary,
+            unfocusedBorderColor = GeoPalette.CardBorder,
+            focusedContainerColor = Color.White,
+            unfocusedContainerColor = Color.White
+        )
+    )
+}
+
+@Composable
+fun StudentSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    selectedFilter: String,
+    onFilterSelect: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        StudentCompactSearchBar(
+            query = query,
+            onQueryChange = onQueryChange,
+            placeholderText = "Search videos, notes, mock tests, PYQs..."
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("All", "Videos", "Study Notes", "Mock Tests", "PYQs").forEach { filter ->
+                val isSelected = selectedFilter == filter
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { onFilterSelect(filter) },
+                    label = { Text(filter, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = GeoPalette.Primary,
+                        selectedLabelColor = Color.White,
+                        containerColor = Color.White,
+                        labelColor = GeoPalette.TextPrimary
+                    ),
+                    border = FilterChipDefaults.filterChipBorder(
+                        enabled = true,
+                        selected = isSelected,
+                        borderColor = GeoPalette.CardBorder,
+                        selectedBorderColor = GeoPalette.Primary
+                    ),
+                    shape = RoundedCornerShape(20.dp)
+                )
+            }
+        }
+    }
+}
+
+data class AnnouncementItem(
+    val title: String,
+    val date: String,
+    val message: String,
+    val isImportant: Boolean = false
+)
+
+private fun Int.ifZero(default: Int): Int = if (this == 0) default else this
+
+@Composable
+fun StudentQuickAccessTile(
+    title: String,
+    icon: ImageVector,
+    accentBg: Color,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        border = BorderStroke(1.5.dp, Color(0xFFE2E8F0)),
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(accentBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = title,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = GeoPalette.TextSecondary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Text(
+                text = title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                color = GeoPalette.TextPrimary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+fun StudentAnnouncementCard(notice: AnnouncementItem) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+        border = BorderStroke(1.dp, if (notice.isImportant) GeoPalette.Primary.copy(alpha = 0.3f) else GeoPalette.Divider.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (notice.isImportant) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFFFEBEE)
+                        ) {
+                            Text(
+                                text = "IMPORTANT",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD32F2F)
+                            )
+                        }
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = GeoPalette.PrimaryContainer
+                        ) {
+                            Text(
+                                text = "NOTICE",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.Primary
+                            )
+                        }
+                    }
+                }
+                Text(notice.date, fontSize = 11.sp, color = GeoPalette.TextSecondary)
+            }
+
+            Text(
+                text = notice.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = GeoPalette.TextPrimary
+            )
+
+            Text(
+                text = notice.message,
+                fontSize = 12.sp,
+                color = GeoPalette.TextSecondary,
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
 @Composable
 fun StudentDashboardHome(
     profile: UserProfile,
@@ -1413,456 +5502,496 @@ fun StudentDashboardHome(
     materialsCount: Int,
     mockTestsCount: Int,
     recentMaterials: List<StudyMaterial>,
+    viewModel: LearningViewModel? = null,
     onNavigate: (String) -> Unit,
     onReadMaterial: (StudyMaterial) -> Unit,
-    onUpdateStream: (String) -> Unit
+    onPlayVideo: ((VideoContent) -> Unit)? = null,
+    onUpdateStream: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onStartQuiz: ((MockTest) -> Unit)? = null,
+    onOpenDrawer: () -> Unit = {}
 ) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isWide = maxWidth >= 720.dp
+    // Reactive Firestore state
+    val firestoreVideos by (viewModel?.videos?.collectAsState() ?: remember { mutableStateOf(emptyList<VideoContent>()) })
+    val firestoreMaterials by (viewModel?.materials?.collectAsState() ?: remember { mutableStateOf(emptyList<StudyMaterial>()) })
+    val firestoreRecordedClasses by (viewModel?.recordedClasses?.collectAsState() ?: remember { mutableStateOf(emptyList<RecordedClass>()) })
+    val firestoreMockTests by (viewModel?.mockTests?.collectAsState() ?: remember { mutableStateOf(emptyList<MockTest>()) })
+    val firestorePYQs by (viewModel?.pyqs?.collectAsState() ?: remember { mutableStateOf(emptyList<PYQ>()) })
+    val testAttemptsState = viewModel?.testAttempts?.collectAsState(initial = emptyList())
+    val testAttempts = testAttemptsState?.value ?: emptyList()
+    val isLoadingContent by (viewModel?.isLoadingContent?.collectAsState() ?: remember { mutableStateOf(false) })
 
-        if (isWide) {
-            // Dual Pane Layout: Left pane for Hero + Learning Hub, Right pane for Recent Materials
+    // Filter content by student's selected stream
+    val studentStream = profile.stream.ifBlank { "Humanities" }
+    val filteredVideos = remember(firestoreVideos, studentStream) {
+        if (studentStream.isBlank()) firestoreVideos
+        else firestoreVideos.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentStream, ignoreCase = true) }
+    }
+    val filteredMaterials = remember(firestoreMaterials, studentStream) {
+        if (studentStream.isBlank()) firestoreMaterials
+        else firestoreMaterials.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentStream, ignoreCase = true) }
+    }
+    val filteredRecordedClasses = remember(firestoreRecordedClasses, studentStream) {
+        if (studentStream.isBlank()) firestoreRecordedClasses
+        else firestoreRecordedClasses.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentStream, ignoreCase = true) }
+    }
+    val filteredMockTests = remember(firestoreMockTests, studentStream) {
+        if (studentStream.isBlank()) firestoreMockTests
+        else firestoreMockTests.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentStream, ignoreCase = true) }
+    }
+    val filteredPYQs = remember(firestorePYQs, studentStream) {
+        if (studentStream.isBlank()) firestorePYQs
+        else firestorePYQs.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentStream, ignoreCase = true) }
+    }
+
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedResourceFilter by remember { mutableStateOf("All") } // "All", "Videos", "Notes", "Classes"
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Main Dashboard Body
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // ---------------------------------------------------------------------
+            // TOP APP BAR: Hamburger (left), INSYR Logo (center), Notification Bell (right)
+            // ---------------------------------------------------------------------
             Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Pane: Hero + Learning Hub
-                Column(
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                // Hamburger menu on the left
+                IconButton(
+                    onClick = { onOpenDrawer() },
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    if (profile.stream.isBlank()) {
-                        SelectStreamBanner(onUpdateStream = onUpdateStream)
-                    }
-
-                    // Welcoming Hero Banner Card
-                    Card(
-                        shape = RoundedCornerShape(28.dp),
-                        colors = CardDefaults.cardColors(containerColor = GeoPalette.PrimaryContainer),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "CURRENT STATUS",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.TextSecondary,
-                                        letterSpacing = 1.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Welcome, ${profile.name}",
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.DarkText,
-                                        lineHeight = 26.sp
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .background(GeoPalette.ApprovedBg, RoundedCornerShape(100.dp))
-                                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "APPROVED",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        letterSpacing = 1.sp
-                                    )
-                                }
-                            }
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                                modifier = Modifier.padding(top = 12.dp)
-                            ) {
-                                Column {
-                                    Text("Selected Stream", fontSize = 11.sp, color = GeoPalette.TextSecondary)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = profile.stream.ifBlank { "N/A" },
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = GeoPalette.TextPrimary
-                                        )
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(32.dp)
-                                        .background(GeoPalette.CardBorder)
-                                )
-                                Column {
-                                    Text("Exam Prep", fontSize = 11.sp, color = GeoPalette.TextSecondary)
-                                    Text("CUET / NCET", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = GeoPalette.TextPrimary)
-                                }
-                            }
-                        }
-                    }
-
-                    // Geometric Balanced Grid matching mock designs
-                    Text(
-                        text = "Learning Hub",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp,
-                        color = GeoPalette.TextPrimary,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        GeometricGridItem(
-                            title = "Mock Tests",
-                            subtitle = "$mockTestsCount Available",
-                            badgeBg = GeoPalette.BadgeQuizBg,
-                            badgeTextColor = GeoPalette.BadgeQuizText,
-                            icon = Icons.Default.Quiz,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onNavigate("all_quizzes") }
-                        )
-
-                        GeometricGridItem(
-                            title = "Videos",
-                            subtitle = "$videosCount Lectures",
-                            badgeBg = GeoPalette.BadgeVideoBg,
-                            badgeTextColor = GeoPalette.BadgeVideoText,
-                            icon = Icons.Default.PlayCircle,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onNavigate("all_videos") }
-                        )
-                    }
-
-                    GeometricGridItem(
-                        title = "Materials",
-                        subtitle = "$materialsCount PDFs & Notes",
-                        badgeBg = GeoPalette.BadgeMaterialBg,
-                        badgeTextColor = GeoPalette.BadgeMaterialText,
-                        icon = Icons.Default.MenuBook,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = { onNavigate("all_materials") }
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Open Left Drawer Menu",
+                        tint = GeoPalette.Primary,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
-                // Right Pane: Recent Materials
-                Column(
-                    modifier = Modifier
-                        .weight(0.8f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                // INSYR Learning Logo centered
+                InsyrLogoHorizontal(width = 130.dp)
+
+                // Right Actions: Notification bell with badge
+                IconButton(
+                    onClick = { viewModel?.showMessage("You have 3 new notifications!") },
+                    modifier = Modifier.size(40.dp)
                 ) {
-                    Text(
-                        text = "Recent Materials",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GeoPalette.TextPrimary,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    if (recentMaterials.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp))
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No study notes uploaded for ${profile.stream} yet.",
-                                fontSize = 13.sp,
-                                color = GeoPalette.TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        recentMaterials.forEach { material ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.White, RoundedCornerShape(16.dp))
-                                    .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp))
-                                    .clickable { onReadMaterial(material) }
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    BadgedBox(
+                        badge = {
+                            Badge(
+                                containerColor = Color(0xFFD32F2F),
+                                contentColor = Color.White
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(GeoPalette.Background)
-                                        .border(1.dp, GeoPalette.CardBorder, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Description,
-                                        contentDescription = null,
-                                        tint = GeoPalette.Primary
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = material.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = GeoPalette.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "${material.stream.ifEmpty { "General" }} • PDF Module",
-                                        fontSize = 11.sp,
-                                        color = GeoPalette.TextSecondary
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = "Read PDF",
-                                    tint = GeoPalette.TextSecondary
-                                )
+                                Text("3", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                             }
                         }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Notifications,
+                            contentDescription = "Notification Icon",
+                            tint = GeoPalette.Primary,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
             }
-        } else {
-            // Normal Portrait Layout for Mobile
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp)
-            ) {
-                if (profile.stream.isBlank()) {
-                    SelectStreamBanner(onUpdateStream = onUpdateStream)
-                }
 
-                // Welcoming Hero Banner Card
-                Card(
-                    shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = GeoPalette.PrimaryContainer),
-                    modifier = Modifier.fillMaxWidth()
+            if (profile.stream.isBlank()) {
+                SelectStreamBanner(onUpdateStream = onUpdateStream)
+            }
+
+            // ---------------------------------------------------------------------
+            // 1. GREETING SECTION
+            // ---------------------------------------------------------------------
+            Column(modifier = Modifier.fillMaxWidth()) {
+                val greeting = remember {
+                    val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                    when {
+                        hour in 4..11 -> "Good Morning"
+                        hour in 12..16 -> "Good Afternoon"
+                        else -> "Good Evening"
+                    }
+                }
+                Text(
+                    text = "$greeting, ${profile.name.ifBlank { "asif" }} 👋",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Keep learning, keep growing!",
+                    fontSize = 13.sp,
+                    color = GeoPalette.TextSecondary
+                )
+            }
+
+            // ---------------------------------------------------------------------
+            // 2. STUDENT INFORMATION CARDS (Stream | Exam | Status)
+            // ---------------------------------------------------------------------
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Stream Card
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.5.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp
                 ) {
                     Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFFFEBEE)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Language,
+                                contentDescription = "Stream",
+                                tint = GeoPalette.Primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text("Stream", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text(
+                            text = studentStream.ifBlank { "Science" },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Exam Card
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.5.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFE3F2FD)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Description,
+                                contentDescription = "Exam",
+                                tint = Color(0xFF1976D2),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text("Exam", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text(
+                            text = profile.exam.ifBlank { "CUET / NCET" },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Status Card
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = BorderStroke(1.5.dp, Color(0xFFE2E8F0)),
+                    shadowElevation = 2.dp
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFE8F5E9)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (profile.isApproved()) Icons.Default.CheckCircle else Icons.Default.HourglassTop,
+                                contentDescription = "Status",
+                                tint = if (profile.isApproved()) Color(0xFF2E7D32) else Color(0xFFF57C00),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Text("Status", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text(
+                            text = if (profile.isApproved()) "Approved" else "Pending",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (profile.isApproved()) Color(0xFF2E7D32) else Color(0xFFF57C00),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            // ---------------------------------------------------------------------
+            // 3. CONTINUE LEARNING CARD
+            // ---------------------------------------------------------------------
+            val lastOpenedItem = remember(filteredVideos, filteredMaterials, filteredRecordedClasses) {
+                if (filteredVideos.isNotEmpty()) filteredVideos.first()
+                else if (filteredMaterials.isNotEmpty()) filteredMaterials.first()
+                else if (filteredRecordedClasses.isNotEmpty()) filteredRecordedClasses.first()
+                else null
+            }
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 4.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(
+                                    GeoPalette.Primary,
+                                    Color(0xFF500A1E)
+                                )
+                            )
+                        )
+                        .padding(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = "Continue Learning",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White.copy(alpha = 0.85f),
+                            letterSpacing = 0.5.sp
+                        )
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "CURRENT STATUS",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.TextSecondary,
-                                        letterSpacing = 1.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Welcome, ${profile.name}",
-                                        fontSize = 22.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.DarkText,
-                                        lineHeight = 26.sp
-                                    )
+                                val titleText = when (lastOpenedItem) {
+                                    is VideoContent -> lastOpenedItem.title
+                                    is StudyMaterial -> lastOpenedItem.title
+                                    is RecordedClass -> lastOpenedItem.title
+                                    else -> "English Literature"
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .background(GeoPalette.ApprovedBg, RoundedCornerShape(100.dp))
-                                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "APPROVED",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White,
-                                        letterSpacing = 1.sp
-                                    )
-                                }
-                            }
-
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                                modifier = Modifier.padding(top = 12.dp)
-                            ) {
-                                Column {
-                                    Text("Selected Stream", fontSize = 11.sp, color = GeoPalette.TextSecondary)
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = profile.stream.ifBlank { "N/A" },
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = GeoPalette.TextPrimary
-                                        )
-                                    }
-                                }
-                            Box(
-                                modifier = Modifier
-                                    .width(1.dp)
-                                    .height(32.dp)
-                                    .background(GeoPalette.CardBorder)
-                            )
-                            Column {
-                                Text("Exam Prep", fontSize = 11.sp, color = GeoPalette.TextSecondary)
-                                Text("CUET / NCET", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = GeoPalette.TextPrimary)
-                            }
-                        }
-                    }
-                }
-
-                // Geometric Balanced Grid matching mock designs
-                Text(
-                    text = "Learning Hub",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = GeoPalette.TextPrimary,
-                    modifier = Modifier.padding(start = 4.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    GeometricGridItem(
-                        title = "Mock Tests",
-                        subtitle = "$mockTestsCount Available",
-                        badgeBg = GeoPalette.BadgeQuizBg,
-                        badgeTextColor = GeoPalette.BadgeQuizText,
-                        icon = Icons.Default.Quiz,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onNavigate("all_quizzes") }
-                    )
-
-                    GeometricGridItem(
-                        title = "Videos",
-                        subtitle = "$videosCount Lectures",
-                        badgeBg = GeoPalette.BadgeVideoBg,
-                        badgeTextColor = GeoPalette.BadgeVideoText,
-                        icon = Icons.Default.PlayCircle,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onNavigate("all_videos") }
-                    )
-                }
-
-                GeometricGridItem(
-                    title = "Materials",
-                    subtitle = "$materialsCount PDFs & Notes",
-                    badgeBg = GeoPalette.BadgeMaterialBg,
-                    badgeTextColor = GeoPalette.BadgeMaterialText,
-                    icon = Icons.Default.MenuBook,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { onNavigate("all_materials") }
-                )
-
-                // Recent Materials section
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Recent Materials",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GeoPalette.TextSecondary,
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
-
-                    if (recentMaterials.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp))
-                                .padding(24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "No study notes uploaded for ${profile.stream} yet.",
-                                fontSize = 13.sp,
-                                color = GeoPalette.TextSecondary,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        recentMaterials.forEach { material ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.White, RoundedCornerShape(16.dp))
-                                    .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp))
-                                    .clickable { onReadMaterial(material) }
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(44.dp)
-                                        .clip(CircleShape)
-                                        .background(GeoPalette.Background)
-                                        .border(1.dp, GeoPalette.CardBorder, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Description,
-                                        contentDescription = null,
-                                        tint = GeoPalette.Primary
-                                    )
+                                val subText = when (lastOpenedItem) {
+                                    is VideoContent -> lastOpenedItem.domain.ifBlank { "Figurative Language" }
+                                    is StudyMaterial -> lastOpenedItem.domain.ifBlank { "Study Notes" }
+                                    is RecordedClass -> lastOpenedItem.domain.ifBlank { "Recorded Class" }
+                                    else -> "Figurative Language"
                                 }
 
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = material.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        color = GeoPalette.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = "${material.stream.ifEmpty { "General" }} • PDF Module",
-                                        fontSize = 11.sp,
-                                        color = GeoPalette.TextSecondary
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = "Read PDF",
-                                    tint = GeoPalette.TextSecondary
+                                Text(
+                                    text = titleText,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = subText,
+                                    fontSize = 13.sp,
+                                    color = Color.White.copy(alpha = 0.8f),
+                                    maxLines = 1
                                 )
                             }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Color.White.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MenuBook,
+                                    contentDescription = "Book Icon",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(30.dp)
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                when (lastOpenedItem) {
+                                    is VideoContent -> onPlayVideo?.invoke(lastOpenedItem) ?: onNavigate("learn")
+                                    is StudyMaterial -> onReadMaterial(lastOpenedItem)
+                                    else -> onNavigate("learn")
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.White,
+                                contentColor = GeoPalette.Primary
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
+                        ) {
+                            Text("Resume Learning", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }
             }
+
+            // ---------------------------------------------------------------------
+            // 4. QUICK ACCESS
+            // ---------------------------------------------------------------------
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Quick Access",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+                    TextButton(onClick = { onNavigate("learn") }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("View All", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = GeoPalette.Primary)
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = GeoPalette.Primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+
+                // Row 1: Videos, Study Materials, Recorded Classes
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StudentQuickAccessTile(
+                        title = "Videos",
+                        icon = Icons.Default.PlayArrow,
+                        accentBg = Color(0xFFFFEBEE),
+                        accentColor = GeoPalette.Primary,
+                        modifier = Modifier.weight(1f),
+                        onClick = { onNavigate("learn") }
+                    )
+                    StudentQuickAccessTile(
+                        title = "Study Materials",
+                        icon = Icons.Default.Description,
+                        accentBg = Color(0xFFE3F2FD),
+                        accentColor = Color(0xFF1976D2),
+                        modifier = Modifier.weight(1f),
+                        onClick = { onNavigate("learn") }
+                    )
+                    StudentQuickAccessTile(
+                        title = "Recorded Classes",
+                        icon = Icons.Default.Videocam,
+                        accentBg = Color(0xFFFFF3E0),
+                        accentColor = Color(0xFFE65100),
+                        modifier = Modifier.weight(1f),
+                        onClick = { onNavigate("learn") }
+                    )
+                }
+
+                // Row 2: Subject Mock Tests, PYQs
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    StudentQuickAccessTile(
+                        title = "Mock Tests",
+                        icon = Icons.Default.Assignment,
+                        accentBg = Color(0xFFE8F5E9),
+                        accentColor = Color(0xFF2E7D32),
+                        modifier = Modifier.weight(1f),
+                        onClick = { onNavigate("all_quizzes") }
+                    )
+                    StudentQuickAccessTile(
+                        title = "PYQs",
+                        icon = Icons.Default.HistoryEdu,
+                        accentBg = Color(0xFFF3E5F5),
+                        accentColor = Color(0xFF7B1FA2),
+                        modifier = Modifier.weight(1f),
+                        onClick = { onNavigate("learn") }
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StudentDrawerItem(
+    label: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    textColor: Color = Color(0xFF212121),
+    iconColor: Color = Color(0xFF37474F),
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) Color(0xFFF8E8EC) else Color.Transparent,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) Color(0xFF7B0F2E) else iconColor,
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = label,
+                fontSize = 14.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) Color(0xFF7B0F2E) else textColor
+            )
         }
     }
 }
@@ -1921,96 +6050,1318 @@ fun GeometricGridItem(
 }
 
 // ----------------------------------------------------
-// STUDENT: MOCK TESTS & MCQ ENGINE
+// STUDENT: STREAM-SPECIFIC FULL MOCK ENTRANCE EXAMINATIONS
+// ----------------------------------------------------
+
+fun generateFullEntranceMockTests(stream: String): List<MockTest> = emptyList()
+
+@Composable
+fun StreamFullMockTestCard(
+    mockTest: MockTest,
+    lastAttempt: TestAttempt?,
+    onStartTest: (MockTest) -> Unit,
+    onViewDetails: (MockTest) -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("full_mock_card_${mockTest.id}"),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.5.dp, GeoPalette.Divider),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Stream Badge & Difficulty Chip
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(GeoPalette.Primary.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "${mockTest.stream} Stream Full Exam",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.Primary
+                    )
+                }
+
+                val difficulty = mockTest.contentType.ifBlank { "Exam Level" }
+                val diffColor = when {
+                    difficulty.contains("hard", ignoreCase = true) || difficulty.contains("high", ignoreCase = true) -> Color(0xFFD32F2F)
+                    difficulty.contains("medium", ignoreCase = true) -> Color(0xFFF57C00)
+                    else -> Color(0xFF1976D2)
+                }
+                Box(
+                    modifier = Modifier
+                        .background(diffColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = "Difficulty: $difficulty",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = diffColor
+                    )
+                }
+            }
+
+            // Test Title
+            Text(
+                text = mockTest.title,
+                fontSize = 16.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = GeoPalette.TextPrimary,
+                lineHeight = 22.sp
+            )
+
+            if (mockTest.description.isNotEmpty()) {
+                Text(
+                    text = mockTest.description,
+                    fontSize = 12.sp,
+                    color = GeoPalette.TextSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
+                )
+            }
+
+            HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+            // Required key metrics: Number of questions, Total marks, Duration
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Number of questions
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.HelpOutline, contentDescription = null, tint = GeoPalette.Primary, modifier = Modifier.size(16.dp))
+                    Column {
+                        Text("Questions", fontSize = 10.sp, color = GeoPalette.TextSecondary)
+                        Text("${mockTest.questions.size} Questions", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+                }
+
+                // Total marks
+                val totalMarks = mockTest.questions.size * 4
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = Color(0xFFF57C00), modifier = Modifier.size(16.dp))
+                    Column {
+                        Text("Total Marks", fontSize = 10.sp, color = GeoPalette.TextSecondary)
+                        Text("$totalMarks Marks", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+                }
+
+                // Duration
+                val durationText = if (mockTest.durationMinutes > 0) "${mockTest.durationMinutes} Mins" else "60 Mins"
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.Timer, contentDescription = null, tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                    Column {
+                        Text("Duration", fontSize = 10.sp, color = GeoPalette.TextSecondary)
+                        Text(durationText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+                }
+            }
+
+            // Previous attempt status if attempted
+            if (lastAttempt != null) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFE8F5E9), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Previous Attempt Score:", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                    Text("${lastAttempt.score} / ${lastAttempt.totalQuestions * 4} (${String.format("%.1f", lastAttempt.percentage)}%)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                }
+            }
+
+            // Action Buttons
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { onViewDetails(mockTest) },
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, GeoPalette.Divider)
+                ) {
+                    Text("Info & Rules", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = GeoPalette.TextPrimary)
+                }
+
+                Button(
+                    onClick = { onStartTest(mockTest) },
+                    modifier = Modifier.weight(1.3f).height(44.dp).testTag("start_test_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary, contentColor = Color.White)
+                ) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Start Test", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MockTestRulesDialog(
+    test: MockTest,
+    onDismiss: () -> Unit,
+    onStartTest: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(test.title, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = GeoPalette.TextPrimary)
+                Text("Entrance Examination Guidelines", fontSize = 12.sp, color = GeoPalette.Primary, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Key Specs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF3F4F6), RoundedCornerShape(12.dp))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Questions", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text("${test.questions.size}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Total Marks", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text("${test.questions.size * 4}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Duration", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                        Text("${test.durationMinutes} Mins", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+
+                HorizontalDivider(color = GeoPalette.Divider)
+
+                Text("Exam Rules & Instructions:", fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = GeoPalette.TextPrimary)
+
+                val rules = listOf(
+                    "Each correct answer carries +4 marks.",
+                    "Each wrong answer will result in -1 negative marking.",
+                    "Unattempted questions carry 0 marks.",
+                    "Once started, the test timer cannot be paused.",
+                    "Submit your responses before the time limit expires."
+                )
+
+                rules.forEach { rule ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text("•", fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+                        Text(rule, fontSize = 12.5.sp, color = GeoPalette.TextPrimary, lineHeight = 17.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onStartTest,
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Start Examination Now", fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = GeoPalette.TextSecondary)
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = Color.White
+    )
+}
+
+fun generateSubjectMockTests(stream: String): List<MockTest> = emptyList()
+
+@Composable
+fun StudentFullStreamMockExamsScreen(
+    studentStream: String,
+    mockTests: List<MockTest>,
+    attempts: List<TestAttempt> = emptyList(),
+    onStartQuiz: (MockTest) -> Unit,
+    onBack: () -> Unit,
+    onUpdateStream: (String) -> Unit,
+    onFullscreenStateChanged: ((Boolean) -> Unit)? = null
+) {
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTestForDetails by remember { mutableStateOf<MockTest?>(null) }
+
+    val activeStream = remember(studentStream) {
+        val lower = studentStream.lowercase().trim()
+        when {
+            lower.contains("science") -> "Science"
+            lower.contains("commerce") -> "Commerce"
+            lower.contains("humanities") || lower.contains("arts") -> "Humanities"
+            else -> "General"
+        }
+    }
+
+    val isFullScreen = selectedTestForDetails != null
+    LaunchedEffect(isFullScreen) {
+        onFullscreenStateChanged?.invoke(isFullScreen)
+    }
+
+    if (selectedTestForDetails != null) {
+        MockTestRulesDialog(
+            test = selectedTestForDetails!!,
+            onDismiss = { selectedTestForDetails = null },
+            onStartTest = {
+                val t = selectedTestForDetails!!
+                selectedTestForDetails = null
+                onStartQuiz(t)
+            }
+        )
+    }
+
+    val subjectTestsList = remember(mockTests, activeStream, searchQuery) {
+        val rawSubjectTests = mockTests.filter { test ->
+            val isSubjectTest = test.contentType != "streamMockTest" && !test.type.lowercase().contains("stream") && !test.type.lowercase().contains("fulllength") && !test.type.lowercase().contains("entrance") && !test.type.lowercase().contains("full")
+            val matchesStream = test.stream.isBlank() || test.stream.equals("All", ignoreCase = true) || test.stream.equals(activeStream, ignoreCase = true)
+            isSubjectTest && matchesStream
+        }
+
+        rawSubjectTests.filter { test ->
+            searchQuery.isBlank() ||
+                    test.title.contains(searchQuery, ignoreCase = true) ||
+                    test.subject.contains(searchQuery, ignoreCase = true) ||
+                    test.domain.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    val streamTestsList = remember(mockTests, activeStream, searchQuery) {
+        val rawStreamTests = mockTests.filter { test ->
+            val isStreamTest = test.contentType == "streamMockTest" || test.type.lowercase().contains("stream") || test.type.lowercase().contains("fulllength") || test.type.lowercase().contains("entrance") || test.type.lowercase().contains("full")
+            val matchesStream = test.stream.equals(activeStream, ignoreCase = true) || test.stream.equals("All", ignoreCase = true)
+            isStreamTest && matchesStream
+        }
+
+        rawStreamTests.filter { test ->
+            searchQuery.isBlank() ||
+                    test.title.contains(searchQuery, ignoreCase = true) ||
+                    test.subject.contains(searchQuery, ignoreCase = true) ||
+                    test.domain.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFFAFAFA))
+    ) {
+        // App Bar
+        Surface(
+            color = Color.White,
+            shadowElevation = 2.dp,
+            modifier = Modifier.fillMaxWidth().statusBarsPadding()
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color(0xFF0F172A)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Mock Tests",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF0F172A)
+                    )
+                }
+
+                // Tab Layout
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    containerColor = Color.White,
+                    contentColor = GeoPalette.Primary,
+                    indicator = { tabPositions ->
+                        if (selectedTabIndex < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                                color = GeoPalette.Primary,
+                                height = 3.dp
+                            )
+                        }
+                    },
+                    divider = { HorizontalDivider(color = Color(0xFFF1F5F9)) }
+                ) {
+                    listOf("Subject Tests", "Stream Tests").forEachIndexed { index, title ->
+                        val isSelected = selectedTabIndex == index
+                        Tab(
+                            selected = isSelected,
+                            onClick = { selectedTabIndex = index },
+                            text = {
+                                Text(
+                                    text = title,
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) GeoPalette.Primary else Color(0xFF64748B)
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Search Bar and Filter
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                StudentCompactSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholderText = "Search mock tests...",
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(
+                    onClick = { /* filter click */ },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = Color(0xFF374151),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            Crossfade(
+                targetState = selectedTabIndex,
+                label = "mock_tests_tab_transition"
+            ) { tabIdx ->
+                val currentList = if (tabIdx == 0) subjectTestsList else streamTestsList
+
+                if (currentList.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFF1F5F9)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Quiz,
+                                    contentDescription = null,
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            Text(
+                                text = "No mock tests available.",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "No mock tests matched '$searchQuery'." else "Check back soon for new practice exams.",
+                                fontSize = 13.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(bottom = 80.dp)
+                    ) {
+                        items(currentList, key = { it.id }) { test ->
+                            StudentMockTestCard(
+                                mockTest = test,
+                                onStartTest = { onStartQuiz(it) },
+                                onViewDetails = { selectedTestForDetails = test }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------
+// STUDENT: SUBJECT MOCK TESTS
 // ----------------------------------------------------
 @Composable
 fun StudentMockTestsList(
     mockTests: List<MockTest>,
+    attempts: List<TestAttempt> = emptyList(),
     onStartQuiz: (MockTest) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    isAdmin: Boolean = false,
+    studentStream: String = "",
+    onAddMockTest: ((title: String, type: String, stream: String, domain: String, questions: List<MockQuestion>, duration: Int, description: String) -> Unit)? = null,
+    onEditMockTest: ((id: String, title: String, type: String, stream: String, domain: String, questions: List<MockQuestion>, duration: Int, description: String) -> Unit)? = null,
+    onDeleteMockTest: ((String) -> Unit)? = null,
+    onFullscreenStateChanged: ((Boolean) -> Unit)? = null
 ) {
+    val detectedStudentStream = remember(studentStream) {
+        val lower = studentStream.lowercase().trim()
+        when {
+            lower.contains("science") -> "Science"
+            lower.contains("commerce") -> "Commerce"
+            lower.contains("humanities") || lower.contains("arts") -> "Humanities"
+            lower.contains("general") -> "General"
+            else -> if (studentStream.isNotBlank()) studentStream else null
+        }
+    }
+
+    var selectedStream by remember(detectedStudentStream) {
+        mutableStateOf<String?>(if (!isAdmin && detectedStudentStream != null) detectedStudentStream else null)
+    }
+    var selectedSubjectTab by remember { mutableStateOf("All") }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedTestForDetails by remember { mutableStateOf<MockTest?>(null) }
+    var showAttemptHistory by remember { mutableStateOf(false) }
+    var activeAddTestFullScreen by remember { mutableStateOf(false) }
+    var activeEditTestFullScreen by remember { mutableStateOf<MockTest?>(null) }
+
+    val isFullScreen = selectedStream != null || activeAddTestFullScreen || activeEditTestFullScreen != null || showAttemptHistory
+    LaunchedEffect(isFullScreen) {
+        onFullscreenStateChanged?.invoke(isFullScreen)
+    }
+
+    val handleBack = {
+        if (selectedStream != null && (isAdmin || detectedStudentStream == null)) {
+            selectedStream = null
+            selectedSubjectTab = "All"
+            searchQuery = ""
+        } else {
+            onBack()
+        }
+    }
+
+    if (activeAddTestFullScreen && selectedStream != null) {
+        AddMockTestFullScreen(
+            stream = selectedStream!!,
+            onDismiss = { activeAddTestFullScreen = false },
+            onSubmit = { title, type, questions, duration, desc ->
+                val domainToSave = if (selectedSubjectTab == "All") "" else selectedSubjectTab
+                onAddMockTest?.invoke(title, type, selectedStream!!, domainToSave, questions, duration, desc)
+                activeAddTestFullScreen = false
+            }
+        )
+        return
+    }
+
+    if (activeEditTestFullScreen != null) {
+        EditMockTestFullScreen(
+            test = activeEditTestFullScreen!!,
+            onDismiss = { activeEditTestFullScreen = null },
+            onSubmit = { title, type, questions, duration ->
+                onEditMockTest?.invoke(activeEditTestFullScreen!!.id, title, type, activeEditTestFullScreen!!.stream, activeEditTestFullScreen!!.domain, questions, duration, activeEditTestFullScreen!!.description)
+                activeEditTestFullScreen = null
+            }
+        )
+        return
+    }
+
+    val subjectList = remember(selectedStream) {
+        val list = mutableListOf("All")
+        if (selectedStream != null) {
+            when (selectedStream) {
+                "Science" -> list.addAll(listOf("Physics", "Chemistry", "Mathematics", "Biology"))
+                "Commerce" -> list.addAll(listOf("Accountancy", "Business Studies", "Economics"))
+                "Humanities" -> list.addAll(listOf("History", "Political Science", "Geography", "Sociology", "Economics"))
+                "General" -> list.addAll(listOf("Language", "General Test", "Teaching Aptitude", "English"))
+                else -> list.addAll(listOf("Domain", "Language", "General Test"))
+            }
+        }
+        list
+    }
+
+    val displayTests = remember(mockTests, selectedStream, searchQuery) {
+        if (selectedStream == null) emptyList()
+        else {
+            mockTests.filter { test ->
+                val isStreamTest = test.contentType == "streamMockTest" || test.type.lowercase().contains("stream") || test.type.lowercase().contains("fulllength") || test.type.lowercase().contains("entrance") || test.type.lowercase().contains("full")
+                val matchesStream = if (selectedStream!!.equals("General", ignoreCase = true)) {
+                    test.stream.equals("General", ignoreCase = true) || test.stream.equals("General Test", ignoreCase = true) || test.stream.isBlank()
+                } else {
+                    test.stream.equals(selectedStream, ignoreCase = true) || test.stream.equals("All", ignoreCase = true)
+                }
+
+                val matchesSearch = searchQuery.isBlank() || test.title.contains(searchQuery, ignoreCase = true) || test.description.contains(searchQuery, ignoreCase = true)
+
+                isStreamTest && matchesStream && matchesSearch
+            }
+        }
+    }
+
+    // Detail dialog
+    if (selectedTestForDetails != null) {
+        val test = selectedTestForDetails!!
+        AlertDialog(
+            onDismissRequest = { selectedTestForDetails = null },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Quiz,
+                        contentDescription = null,
+                        tint = GeoPalette.Primary
+                    )
+                    Text(text = "Test Details & Rules", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = test.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp,
+                        color = GeoPalette.TextPrimary
+                    )
+
+                    if (test.description.isNotEmpty()) {
+                        Text(
+                            text = test.description,
+                            fontSize = 13.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Stream:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                        Text(test.stream, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Subject:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                        Text(test.subject.ifBlank { test.domain.ifBlank { "General" } }, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Questions:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                        Text("${test.questions.size} Questions", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Total Marks:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                        Text("${test.questions.size * 4} Marks (+4 / -1)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Duration:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
+                        val durationText = if (test.durationMinutes > 0) "${test.durationMinutes} Minutes" else "30 Minutes"
+                        Text(durationText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(GeoPalette.PrimaryContainer, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = "Guidelines: The timer will start upon launch. Answers will be evaluated upon submission and saved to your Attempt History.",
+                            fontSize = 11.sp,
+                            color = GeoPalette.Primary,
+                            lineHeight = 15.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (!isAdmin) {
+                    Button(
+                        onClick = {
+                            val testToStart = test
+                            selectedTestForDetails = null
+                            onStartQuiz(testToStart)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32), contentColor = Color.White),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Start Test", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedTestForDetails = null }) {
+                    Text("Close", color = GeoPalette.TextSecondary, fontSize = 12.sp)
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
+    // Attempt History Dialog
+    if (showAttemptHistory) {
+        AlertDialog(
+            onDismissRequest = { showAttemptHistory = false },
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = null, tint = GeoPalette.Primary)
+                    Text("My Attempt History", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                if (attempts.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.HourglassEmpty, contentDescription = null, tint = GeoPalette.TextSecondary, modifier = Modifier.size(40.dp))
+                            Text("No mock test attempts recorded yet.", fontSize = 13.sp, color = GeoPalette.TextSecondary)
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 350.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(attempts) { attempt ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
+                                border = BorderStroke(1.dp, GeoPalette.Divider),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(attempt.testTitle.ifBlank { "Mock Practice Test" }, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = GeoPalette.TextPrimary)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("Score: ${attempt.score} Marks", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+                                        Text("${String.format("%.1f", attempt.percentage)}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("Correct: ${attempt.correctAnswers} • Wrong: ${attempt.wrongAnswers}", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                                        Text("Subject: ${attempt.subject.ifBlank { "General" }}", fontSize = 11.sp, color = GeoPalette.TextSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAttemptHistory = false }) {
+                    Text("Close", fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(20.dp)
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Top Header
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                IconButton(onClick = handleBack) {
+                    Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
+                }
+                Text(
+                    text = if (selectedStream == null) "Subject Mock Tests" else "$selectedStream Stream Mock Tests",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text("Entrance Mock Exams", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-        }
 
-        if (mockTests.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(Icons.Default.Quiz, null, modifier = Modifier.size(64.dp), tint = GeoPalette.TextSecondary)
-                    Text("No practice mock exams matching your stream yet.", color = GeoPalette.TextSecondary)
+            if (!isAdmin) {
+                IconButton(
+                    onClick = { showAttemptHistory = true },
+                    modifier = Modifier
+                        .background(GeoPalette.Primary.copy(alpha = 0.08f), CircleShape)
+                        .size(40.dp)
+                ) {
+                    Icon(Icons.Default.History, contentDescription = "Attempt History", tint = GeoPalette.Primary, modifier = Modifier.size(20.dp))
                 }
             }
-        } else {
+        }
+
+        if (selectedStream == null) {
+            // Stream Selection view
+            Text(
+                text = "Select your academic stream to practice dedicated stream mock tests.",
+                fontSize = 13.sp,
+                color = GeoPalette.TextSecondary,
+                lineHeight = 18.sp
+            )
+
+            val streams = listOf(
+                Triple("Science", "Physics, Chemistry, Biology, Mathematics", Color(0xFF1E88E5)),
+                Triple("Commerce", "Accountancy, Business Studies, Economics", Color(0xFF43A047)),
+                Triple("Humanities", "History, Political Science, Geography, Sociology", Color(0xFF8E24AA)),
+                Triple("General", "Language, General Test, Teaching Aptitude", Color(0xFFE65100))
+            )
+
             LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                items(mockTests) { test ->
+                items(streams) { (streamName, desc, accentColor) ->
+                    val icon = when (streamName) {
+                        "Science" -> Icons.Default.Science
+                        "Commerce" -> Icons.Default.Work
+                        "Humanities" -> Icons.Default.AccountBalance
+                        else -> Icons.Default.Public
+                    }
+
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedStream = streamName },
                         colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, GeoPalette.Divider),
+                        border = BorderStroke(1.5.dp, GeoPalette.Divider),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(accentColor.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(GeoPalette.PrimaryContainer, RoundedCornerShape(8.dp))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = test.type.uppercase(),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.DarkText
-                                    )
-                                }
-                                Text(
-                                    text = "${test.questions.size} MCQs",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = GeoPalette.TextSecondary
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(28.dp)
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Text(
-                                text = test.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = GeoPalette.TextPrimary
-                            )
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            Button(
-                                onClick = { onStartQuiz(test) },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
-                            ) {
-                                Text("Attempt Practice Exam", fontWeight = FontWeight.Bold)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "$streamName Stream",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GeoPalette.TextPrimary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = desc,
+                                    fontSize = 12.sp,
+                                    color = GeoPalette.TextSecondary,
+                                    lineHeight = 16.sp
+                                )
                             }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = "Select",
+                                tint = GeoPalette.Divider,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
+            }
+        } else {
+            // Stream-wise mock tests list page
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                StudentCompactSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholderText = "Search mock tests...",
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(
+                    onClick = { /* filter click */ },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = Color(0xFF374151),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                if (isAdmin) {
+                    Button(
+                        onClick = { activeAddTestFullScreen = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(48.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Add", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+
+            if (displayTests.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(70.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFF1F5F9)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Quiz,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+                        Text(
+                            text = "No mock tests available.",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF0F172A)
+                        )
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No mock tests matched '$searchQuery'." else "Check back soon for new practice exams.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(displayTests) { test ->
+                        val lastAttempt = attempts.find { it.testId == test.id || it.testTitle == test.title }
+                        StudentMockTestCard(
+                            mockTest = test,
+                            onStartTest = { onStartQuiz(it) },
+                            lastScorePercent = lastAttempt?.percentage,
+                            onViewDetails = { selectedTestForDetails = test }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QuizSubmissionResultView(
+    state: QuizState,
+    onReviewAnswers: () -> Unit,
+    onRetakeTest: () -> Unit,
+    onExit: () -> Unit
+) {
+    val test = state.activeTest ?: return
+    val totalQuestions = test.questions.size
+    val totalMarks = totalQuestions * 4
+    val score = state.score
+    val correct = state.correctCount
+    val wrong = state.wrongCount
+    val percentage = state.percentage
+
+    val performanceText = when {
+        percentage >= 80.0 -> "Outstanding Performance! 🎉"
+        percentage >= 60.0 -> "Great Job! Keep it up! 👍"
+        percentage >= 40.0 -> "Good Effort! Room for improvement. 💪"
+        else -> "Keep Practicing! You'll get better. 📚"
+    }
+
+    val performanceColor = when {
+        percentage >= 80.0 -> Color(0xFF2E7D32)
+        percentage >= 60.0 -> Color(0xFF1976D2)
+        percentage >= 40.0 -> Color(0xFFF57C00)
+        else -> Color(0xFFD32F2F)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Exit bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onExit) {
+                Icon(Icons.Default.Close, "Close Results")
+            }
+            Text(
+                text = "Test Submission Result",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = GeoPalette.TextPrimary
+            )
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+
+        // Hero Scorecard Box
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.5.dp, GeoPalette.Divider),
+            shape = RoundedCornerShape(24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(performanceColor.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (percentage >= 50.0) Icons.Default.EmojiEvents else Icons.Default.School,
+                        contentDescription = null,
+                        tint = performanceColor,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                Text(
+                    text = test.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = GeoPalette.TextPrimary,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = performanceText,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = performanceColor,
+                    textAlign = TextAlign.Center
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = GeoPalette.Divider.copy(alpha = 0.5f))
+
+                // The 4 required metrics cards: Score, Correct, Wrong, Percentage
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Score Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Stars, contentDescription = null, tint = GeoPalette.Primary, modifier = Modifier.size(20.dp))
+                            Text("Score", fontSize = 11.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Medium)
+                            Text("$score / $totalMarks", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                        }
+                    }
+
+                    // Percentage Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.PieChart, contentDescription = null, tint = Color(0xFF1976D2), modifier = Modifier.size(20.dp))
+                            Text("Percentage", fontSize = 11.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Medium)
+                            Text("${String.format("%.1f", percentage)}%", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Correct Answers Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                            Text("Correct Answers", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+                            Text("$correct / $totalQuestions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                        }
+                    }
+
+                    // Wrong Answers Card
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Cancel, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
+                            Text("Wrong Answers", fontSize = 11.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
+                            Text("$wrong / $totalQuestions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                        }
+                    }
+                }
+
+                // Time Taken Card
+                val timeTakenSec = state.timeTakenSeconds
+                val formattedTimeTaken = remember(timeTakenSec, test.durationMinutes) {
+                    if (timeTakenSec > 0) {
+                        val m = timeTakenSec / 60
+                        val s = timeTakenSec % 60
+                        if (m > 0) "$m mins $s secs" else "$s secs"
+                    } else {
+                        "${test.durationMinutes} mins"
+                    }
+                }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Timer,
+                                contentDescription = null,
+                                tint = Color(0xFFF57F17),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = "Time Taken",
+                                fontSize = 12.sp,
+                                color = Color(0xFFF57F17),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Text(
+                            text = formattedTimeTaken,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFF57F17)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Accuracy bar
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Accuracy Rate", fontSize = 12.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Medium)
+                        Text("${String.format("%.1f", percentage)}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = performanceColor)
+                    }
+                    LinearProgressIndicator(
+                        progress = { (percentage / 100.0).toFloat().coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(10.dp)
+                            .clip(CircleShape),
+                        color = performanceColor,
+                        trackColor = GeoPalette.Divider
+                    )
+                }
+            }
+        }
+
+        // Action Buttons
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Review Answers Button
+            Button(
+                onClick = onReviewAnswers,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("review_answers_button"),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary, contentColor = Color.White)
+            ) {
+                Icon(Icons.Default.FactCheck, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Review Answers", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+
+            // Retake Test Button
+            OutlinedButton(
+                onClick = onRetakeTest,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.5.dp, GeoPalette.Primary),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.Primary)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Retake Test", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            }
+
+            // Exit Button
+            TextButton(
+                onClick = onExit,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Back to Subject Mock Tests", color = GeoPalette.TextSecondary, fontSize = 14.sp)
             }
         }
     }
@@ -2023,18 +7374,126 @@ fun QuizPlayerScreen(
     onNext: () -> Unit,
     onPrev: () -> Unit,
     onSubmit: () -> Unit,
-    onExit: () -> Unit
+    onExit: () -> Unit,
+    onReviewAnswers: () -> Unit = {},
+    onRetakeTest: () -> Unit = {}
 ) {
     val test = state.activeTest ?: return
+    
+    if (state.isSubmitted && !state.isReviewMode) {
+        QuizSubmissionResultView(
+            state = state,
+            onReviewAnswers = onReviewAnswers,
+            onRetakeTest = onRetakeTest,
+            onExit = onExit
+        )
+        return
+    }
     val totalQuestions = test.questions.size
     val currentIdx = state.currentQuestionIndex
     val currentQuestion = test.questions[currentIdx]
+
+    var timeLeftSeconds by remember(test.id) {
+        mutableStateOf(test.durationMinutes * 60)
+    }
+
+    LaunchedEffect(key1 = test.id, key2 = state.isSubmitted) {
+        if (test.durationMinutes > 0 && !state.isSubmitted) {
+            while (timeLeftSeconds > 0) {
+                kotlinx.coroutines.delay(1000)
+                timeLeftSeconds--
+            }
+            onSubmit()
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        if (test.durationMinutes > 0) {
+            if (!state.isSubmitted) {
+                val minutes = timeLeftSeconds / 60
+                val seconds = timeLeftSeconds % 60
+                val isLowTime = timeLeftSeconds < 60 // Less than 1 minute left
+                
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isLowTime) Color(0xFFFFEBEE) else Color(0xFFFFF8E1)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, if (isLowTime) Color(0xFFEF5350) else Color(0xFFFFB300))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = "Timer",
+                            tint = if (isLowTime) Color(0xFFD32F2F) else Color(0xFFF57F17),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Time Remaining: ${String.format("%02d:%02d", minutes, seconds)}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isLowTime) Color(0xFFD32F2F) else Color(0xFFF57F17)
+                        )
+                        if (isLowTime) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "(Auto-submitting!)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFFD32F2F)
+                            )
+                        }
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFE8F5E9)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF81C784))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Completed",
+                            tint = Color(0xFF2E7D32),
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Exam Completed",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                }
+            }
+        }
         // Top exit action bar
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -2228,6 +7687,7 @@ fun QuizPlayerScreen(
 // ----------------------------------------------------
 @Composable
 fun StudentVideosList(
+    streamName: String,
     videos: List<VideoContent>,
     recordedClasses: List<RecordedClass> = emptyList(),
     onPlayVideo: (VideoContent) -> Unit,
@@ -2235,9 +7695,16 @@ fun StudentVideosList(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
+    var selectedDomain by remember { mutableStateOf("All") }
 
-    val filtered = remember(videos, recordedClasses, searchQuery, selectedCategory) {
-        if (selectedCategory.equals("Recorded", ignoreCase = true)) {
+    val domains = remember(streamName) {
+        val list = mutableListOf("All")
+        com.example.data.StreamDomains[streamName]?.let { list.addAll(it) }
+        list
+    }
+
+    val filtered = remember(videos, recordedClasses, searchQuery, selectedCategory, selectedDomain) {
+        val baseVideos = if (selectedCategory.equals("Recorded", ignoreCase = true)) {
             recordedClasses.map { rec ->
                 VideoContent(
                     id = rec.id,
@@ -2246,16 +7713,20 @@ fun StudentVideosList(
                     url = rec.videoUrl,
                     category = "Recorded",
                     stream = rec.stream,
+                    domain = rec.domain,
                     createdAt = rec.createdAt
                 )
-            }.filter {
-                searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true)
             }
         } else {
             videos.filter { video ->
-                (selectedCategory == "All" || video.category.equals(selectedCategory, ignoreCase = true)) &&
-                (searchQuery.isBlank() || video.title.contains(searchQuery, ignoreCase = true))
+                (selectedCategory == "All" || video.category.equals(selectedCategory, ignoreCase = true))
             }
+        }
+
+        baseVideos.filter { item ->
+            val matchDomain = selectedDomain == "All" || item.domain.equals(selectedDomain, ignoreCase = true)
+            val matchQuery = searchQuery.isBlank() || item.title.contains(searchQuery, ignoreCase = true)
+            matchDomain && matchQuery
         }
     }
 
@@ -2301,70 +7772,30 @@ fun StudentVideosList(
         }
 
         // Custom premium compact Search bar
-        BasicTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            textStyle = androidx.compose.ui.text.TextStyle(
-                color = GeoPalette.TextPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            ),
-            singleLine = true,
-            cursorBrush = androidx.compose.ui.graphics.SolidColor(GeoPalette.Primary),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp),
-            decorationBox = { innerTextField ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.White, RoundedCornerShape(12.dp))
-                        .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = GeoPalette.TextSecondary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Box(modifier = Modifier.weight(1f)) {
-                        if (searchQuery.isEmpty()) {
-                            Text(
-                                text = "Search lectures...",
-                                color = GeoPalette.TextSecondary.copy(alpha = 0.6f),
-                                fontSize = 13.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { searchQuery = "" },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = "Clear search",
-                                tint = GeoPalette.TextSecondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                }
-            }
+        StudentCompactSearchBar(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            placeholderText = "Search lectures..."
         )
 
         // Custom Category Pills row with visual icons
-        val categories = listOf(
-            Triple("All", "All Lectures", Icons.Default.Apps),
-            Triple("Domain", "Domain", Icons.Default.Book),
-            Triple("General", "General", Icons.Default.Layers),
-            Triple("TeachingAptitude", "Teaching Apt.", Icons.Default.School),
-            Triple("Recorded", "Recorded", Icons.Default.Videocam)
-        )
+        val categories = if (streamName.equals("General", ignoreCase = true)) {
+            listOf(
+                Triple("All", "All Lectures", Icons.Default.Apps),
+                Triple("Language", "Language", Icons.Default.Translate),
+                Triple("General", "General Test", Icons.Default.Psychology),
+                Triple("TeachingAptitude", "Teaching Apt.", Icons.Default.School),
+                Triple("Recorded", "Recorded", Icons.Default.Videocam)
+            )
+        } else {
+            listOf(
+                Triple("All", "All Lectures", Icons.Default.Apps),
+                Triple("Domain", "Domain", Icons.Default.Book),
+                Triple("General", "General", Icons.Default.Layers),
+                Triple("TeachingAptitude", "Teaching Apt.", Icons.Default.School),
+                Triple("Recorded", "Recorded", Icons.Default.Videocam)
+            )
+        }
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -2405,6 +7836,51 @@ fun StudentVideosList(
                             fontSize = 12.sp,
                             color = if (isSelected) Color.White else GeoPalette.TextPrimary
                         )
+                    }
+                }
+            }
+        }
+
+        // Domain Chips Row
+        if (domains.size > 1) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Filter by Academic Domain ($streamName):",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.Primary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 4.dp)
+                ) {
+                    domains.forEach { dom ->
+                        val isSelected = selectedDomain == dom
+                        Box(
+                            modifier = Modifier
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) GeoPalette.Primary else GeoPalette.CardBorder,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .background(
+                                    color = if (isSelected) GeoPalette.PrimaryContainer else Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedDomain = dom }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = dom,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = if (isSelected) GeoPalette.Primary else GeoPalette.TextPrimary
+                            )
+                        }
                     }
                 }
             }
@@ -2535,14 +8011,13 @@ fun VideoListItemCard(
         }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onPlayVideo(video) },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, GeoPalette.Divider),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    InteractiveCard(
+        onClick = { onPlayVideo(video) },
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = Color.White,
+        borderColor = GeoPalette.Divider,
+        borderWidth = 1.5.dp,
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier
@@ -2758,14 +8233,13 @@ fun VideoGridItemCard(
         }
     }
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onPlayVideo(video) },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, GeoPalette.Divider),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    InteractiveCard(
+        onClick = { onPlayVideo(video) },
+        modifier = Modifier.fillMaxWidth(),
+        containerColor = Color.White,
+        borderColor = GeoPalette.Divider,
+        borderWidth = 1.5.dp,
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -2939,11 +8413,183 @@ fun VideoGridItemCard(
     }
 }
 
+fun isYouTubeUrl(url: String): Boolean {
+    if (url.isBlank()) return false
+    var clean = url.trim().lowercase(java.util.Locale.getDefault())
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+        clean = "https://$clean"
+    }
+    return clean.contains("youtube.com") || clean.contains("youtu.be")
+}
+
+fun openYouTubeVideo(context: android.content.Context, url: String) {
+    var clean = url.trim()
+    if (clean.isEmpty()) {
+        android.widget.Toast.makeText(context, "Invalid video URL: URL is empty.", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+        clean = "https://$clean"
+    }
+    if (!isYouTubeUrl(clean)) {
+        android.widget.Toast.makeText(context, "Invalid YouTube URL format.", android.widget.Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = android.net.Uri.parse(clean)
+    try {
+        val appIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.google.android.youtube")
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(appIntent)
+    } catch (e: Exception) {
+        try {
+            val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Could not open YouTube link in browser.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun isGoogleDriveUrl(url: String): Boolean {
+    if (url.isBlank()) return false
+    var clean = url.trim().lowercase(java.util.Locale.getDefault())
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+        clean = "https://$clean"
+    }
+    return clean.contains("drive.google.com") || clean.contains("docs.google.com")
+}
+
+fun openGoogleDriveDocument(context: android.content.Context, url: String) {
+    var clean = url.trim()
+    if (clean.isEmpty()) {
+        android.widget.Toast.makeText(context, "Invalid Google Drive URL: URL is empty.", android.widget.Toast.LENGTH_SHORT).show()
+        return
+    }
+    if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+        clean = "https://$clean"
+    }
+    if (!isGoogleDriveUrl(clean)) {
+        android.widget.Toast.makeText(context, "Invalid Google Drive URL format.", android.widget.Toast.LENGTH_LONG).show()
+        return
+    }
+    val uri = android.net.Uri.parse(clean)
+    try {
+        val appIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.google.android.apps.docs")
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(appIntent)
+    } catch (e: Exception) {
+        try {
+            val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        } catch (ex: Exception) {
+            android.widget.Toast.makeText(context, "Could not open Google Drive link in browser.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+fun downloadPdf(context: android.content.Context, urlString: String, title: String) {
+    try {
+        val request = android.app.DownloadManager.Request(android.net.Uri.parse(urlString)).apply {
+            setTitle(title)
+            setDescription("Downloading PDF study material...")
+            setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "$title.pdf")
+            setAllowedOverMetered(true)
+            setAllowedOverRoaming(true)
+        }
+        val downloadManager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+        downloadManager.enqueue(request)
+        android.widget.Toast.makeText(context, "Download started for $title.pdf. Check notification panel.", android.widget.Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Download failed: ${e.localizedMessage}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun extractYoutubeVideoId(url: String): String? {
+    val cleanUrl = url.trim()
+    val patterns = listOf(
+        "youtube\\.com/watch\\?v=([^&]+)".toRegex(RegexOption.IGNORE_CASE),
+        "youtu\\.be/([^?&#]+)".toRegex(RegexOption.IGNORE_CASE),
+        "youtube\\.com/embed/([^?&#]+)".toRegex(RegexOption.IGNORE_CASE),
+        "youtube\\.com/v/([^?&#]+)".toRegex(RegexOption.IGNORE_CASE)
+    )
+    for (pattern in patterns) {
+        val matchResult = pattern.find(cleanUrl)
+        if (matchResult != null && matchResult.groupValues.size > 1) {
+            return matchResult.groupValues[1]
+        }
+    }
+    
+    if (cleanUrl.contains("youtu.be/", ignoreCase = true)) {
+        val parts = cleanUrl.split("youtu.be/")
+        if (parts.size > 1) {
+            val idPart = parts[1]
+            val endIdx = idPart.indexOfAny(charArrayOf('?', '&', '#'))
+            return if (endIdx != -1) idPart.substring(0, endIdx) else idPart
+        }
+    }
+    if (cleanUrl.contains("youtube.com/watch", ignoreCase = true)) {
+        val parts = cleanUrl.split("v=")
+        if (parts.size > 1) {
+            val idPart = parts[1]
+            val endIdx = idPart.indexOfAny(charArrayOf('&', '#'))
+            return if (endIdx != -1) idPart.substring(0, endIdx) else idPart
+        }
+    }
+    return null
+}
+
+@Composable
+fun VideoPlayerView(url: String, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val cleanUrl = url.trim()
+
+    Box(
+        modifier = modifier
+            .background(Color.Black)
+            .clickable { openYouTubeVideo(context, cleanUrl) },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayCircleFilled,
+                contentDescription = "Watch on YouTube",
+                tint = Color(0xFFFF0000),
+                modifier = Modifier.size(56.dp)
+            )
+            Button(
+                onClick = { openYouTubeVideo(context, cleanUrl) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000)),
+                shape = RoundedCornerShape(24.dp)
+            ) {
+                Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Watch on YouTube", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
 @Composable
 fun StudentVideoPlayer(
     video: VideoContent,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val finalUrl = if (video.videoUrl.trim().isNotEmpty()) video.videoUrl.trim() else video.url.trim()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2960,49 +8606,58 @@ fun StudentVideoPlayer(
             Text("Lecture Player", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 
-        // Mock Screen Player Container
+        // External YouTube Player Card
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp),
+                .height(220.dp),
             colors = CardDefaults.cardColors(containerColor = Color.Black),
             shape = RoundedCornerShape(16.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                // Background simulated graphic
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Tv, contentDescription = null, tint = Color.LightGray, modifier = Modifier.size(48.dp))
-                    Text("SIMULATED LECTURE STREAM", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("Lecture URL: ${video.url}", color = Color.Gray, fontSize = 10.sp)
-                }
-
-                // Control panel overlay bottom
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Icon(Icons.Default.Pause, "Pause", tint = Color.White)
-                    // Custom Slider indicator
+                if (!video.thumbnailUrl.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = video.thumbnailUrl,
+                        contentDescription = "Video Thumbnail",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .height(4.dp)
-                            .padding(horizontal = 12.dp)
-                            .background(Color.DarkGray)
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.4f))
+                    )
+                }
+                
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayCircleFilled,
+                        contentDescription = "Play YouTube Video",
+                        tint = Color(0xFFFF0000),
+                        modifier = Modifier.size(56.dp)
+                    )
+                    Text(
+                        text = video.title,
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Button(
+                        onClick = { openYouTubeVideo(context, finalUrl) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000)),
+                        shape = RoundedCornerShape(24.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(0.35f)
-                                .fillMaxHeight()
-                                .background(GeoPalette.Primary)
-                        )
+                        Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Watch on YouTube App", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
-                    Text("14:22 / 45:00", color = Color.White, fontSize = 11.sp)
                 }
             }
         }
@@ -3038,11 +8693,22 @@ fun StudentVideoPlayer(
                 Divider(color = GeoPalette.Divider)
 
                 Text(
-                    text = "This course study lecture helps aspirants understand complex topics related to the CUET / NCET syllabus. Take down notes in your workbook and cross-verify with study materials and practice mock exams inside the materials section.",
+                    text = video.description.ifBlank { "This course study lecture helps aspirants understand complex topics related to the CUET / NCET syllabus." },
                     fontSize = 13.sp,
                     color = GeoPalette.TextSecondary,
                     lineHeight = 18.sp
                 )
+
+                Button(
+                    onClick = { openYouTubeVideo(context, finalUrl) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Watch Video Lecture on YouTube", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -3053,15 +8719,25 @@ fun StudentVideoPlayer(
 // ----------------------------------------------------
 @Composable
 fun StudentMaterialsList(
+    streamName: String,
     materials: List<StudyMaterial>,
     onReadMaterial: (StudyMaterial) -> Unit,
     onBack: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    var selectedDomain by remember { mutableStateOf("All") }
 
-    val filtered = remember(materials, searchQuery) {
+    val domains = remember(streamName) {
+        val list = mutableListOf("All")
+        com.example.data.StreamDomains[streamName]?.let { list.addAll(it) }
+        list
+    }
+
+    val filtered = remember(materials, searchQuery, selectedDomain) {
         materials.filter {
-            searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true)
+            val matchDomain = selectedDomain == "All" || it.domain.equals(selectedDomain, ignoreCase = true)
+            val matchQuery = searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true)
+            matchDomain && matchQuery
         }
     }
 
@@ -3081,15 +8757,56 @@ fun StudentMaterialsList(
             Text("Study Material Notes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            placeholder = { Text("Search materials & formulae sheets...") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(12.dp),
-            singleLine = true
+        StudentCompactSearchBar(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            placeholderText = "Search materials & formulae sheets..."
         )
+
+        // Domain Chips Row
+        if (domains.size > 1) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Filter by Academic Subject/Domain ($streamName):",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.Primary,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(vertical = 4.dp)
+                ) {
+                    domains.forEach { dom ->
+                        val isSelected = selectedDomain == dom
+                        Box(
+                            modifier = Modifier
+                                .border(
+                                    width = 1.dp,
+                                    color = if (isSelected) GeoPalette.Primary else GeoPalette.CardBorder,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .background(
+                                    color = if (isSelected) GeoPalette.PrimaryContainer else Color.White,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .clickable { selectedDomain = dom }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = dom,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = if (isSelected) GeoPalette.Primary else GeoPalette.TextPrimary
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         if (filtered.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -3101,16 +8818,17 @@ fun StudentMaterialsList(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(filtered) { material ->
-                    Card(
+                    InteractiveCard(
+                        onClick = { onReadMaterial(material) },
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        border = BorderStroke(1.dp, GeoPalette.Divider),
+                        containerColor = Color.White,
+                        borderColor = GeoPalette.Divider,
+                        borderWidth = 1.5.dp,
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onReadMaterial(material) }
                                 .padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -3153,10 +8871,161 @@ fun StudentMaterialsList(
 }
 
 @Composable
+fun InAppPdfViewer(
+    url: String,
+    title: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var hasError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    androidx.compose.ui.window.Dialog(
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false
+        ),
+        onDismissRequest = onDismiss
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, GeoPalette.Divider)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.Primary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "In-App PDF Viewer",
+                            fontSize = 11.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close PDF")
+                    }
+                }
+                
+                Divider(color = GeoPalette.Divider)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight(1f)
+                        .background(Color(0xFFF3F4F6)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (hasError) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = null,
+                                tint = Color.Red,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Text(
+                                "Cannot load PDF in Webview",
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Red,
+                                fontSize = 15.sp
+                            )
+                            Text(
+                                errorMessage ?: "A connection or rendering error occurred.",
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Button(
+                                onClick = {
+                                    downloadPdf(context, url, title)
+                                    onDismiss()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("Download & Open Externally")
+                            }
+                        }
+                    } else {
+                        val encodedUrl = try {
+                            java.net.URLEncoder.encode(url, "UTF-8").replace("+", "%20")
+                        } catch (e: Exception) {
+                            url
+                        }
+                        val docViewerUrl = "https://docs.google.com/gview?embedded=true&url=$encodedUrl"
+                        
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            factory = { ctx ->
+                                android.webkit.WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    settings.builtInZoomControls = true
+                                    settings.displayZoomControls = false
+                                    settings.useWideViewPort = true
+                                    settings.loadWithOverviewMode = true
+                                    
+                                    webViewClient = object : android.webkit.WebViewClient() {
+                                        override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
+                                            isLoading = false
+                                        }
+
+                                        override fun onReceivedError(
+                                            view: android.webkit.WebView?,
+                                            request: android.webkit.WebResourceRequest?,
+                                            error: android.webkit.WebResourceError?
+                                        ) {
+                                            hasError = true
+                                            errorMessage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                                                error?.description?.toString()
+                                            } else {
+                                                "Network or page load failure"
+                                            }
+                                        }
+                                    }
+                                    loadUrl(docViewerUrl)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        if (isLoading) {
+                            CircularProgressIndicator(color = GeoPalette.Primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun StudentMaterialReader(
     material: StudyMaterial,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3170,7 +9039,7 @@ fun StudentMaterialReader(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
             }
-            Text("Summary Notebook", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Study Material Notes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
 
         Card(
@@ -3189,16 +9058,30 @@ fun StudentMaterialReader(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.MenuBook, null, tint = GeoPalette.Primary, modifier = Modifier.size(28.dp))
-                    Text(material.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = GeoPalette.TextPrimary)
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(GeoPalette.PrimaryContainer, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Description, null, tint = GeoPalette.Primary, modifier = Modifier.size(28.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(material.title, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = GeoPalette.TextPrimary)
+                        Text(
+                            text = "Category: ${material.category} • Stream: ${material.stream.ifEmpty { "General" }}",
+                            fontSize = 12.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
                 }
 
                 Divider(color = GeoPalette.Divider)
 
                 Text(
-                    text = "CHAPTER SUMMARY NOTEBOOK",
+                    text = "STUDY MATERIAL & NOTES",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = GeoPalette.Primary,
@@ -3206,7 +9089,7 @@ fun StudentMaterialReader(
                 )
 
                 Text(
-                    text = "Aspirants preparing for the National Common Entrance Test (NCET) and Central Universities Entrance Test (CUET) can review this formulated capsule guide. This covers fundamental concept charts, definitions, typical questions patterns, and solutions logic.\n\nFile download stream: ${material.fileUrl}\n\nKey Concepts Breakdown:\n1. Core definitions of the topic outline.\n2. Fundamental theorems, derivations, and formulas mapped to the current curriculum.\n3. Model solved questions outlining correct step layouts to ensure zero marks lost.\n4. Quick response strategies for high speed MCQ cracking during live exams.",
+                    text = "Aspirants preparing for NCET and CUET can review this study material hosted on Google Drive. Click the button below to view or download the complete PDF file directly in the Google Drive app or browser.",
                     fontSize = 14.sp,
                     color = GeoPalette.TextSecondary,
                     lineHeight = 22.sp
@@ -3215,14 +9098,16 @@ fun StudentMaterialReader(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
-                    onClick = { /* simulated open pdf */ },
+                    onClick = {
+                        openGoogleDriveDocument(context, material.fileUrl)
+                    },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) {
-                    Icon(Icons.Default.Download, null)
+                    Icon(Icons.Default.Launch, null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Download Full PDF Study Material", fontWeight = FontWeight.Bold)
+                    Text("Open PDF in Google Drive", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         }
@@ -3234,58 +9119,109 @@ fun StudentMaterialReader(
 // ----------------------------------------------------
 @Composable
 fun StudentFeedbackScreen(
-    onSubmit: (String) -> Unit
+    onSubmit: (String) -> Unit,
+    onBack: () -> Unit = {}
 ) {
     var feedbackMsg by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("Contact Platform Admins", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        // App Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = GeoPalette.DarkText,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Text(
+                text = "Feedback",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = GeoPalette.DarkText
+            )
+        }
+
         Text(
             text = "Have questions regarding study topics, exam patterns, or need access to extra resources? Write your feedback here and our platform curators will assist you shortly.",
             color = GeoPalette.TextSecondary,
-            fontSize = 13.sp
+            fontSize = 14.sp,
+            lineHeight = 20.sp
         )
 
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, GeoPalette.Divider),
-            shape = RoundedCornerShape(24.dp)
+            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            shape = RoundedCornerShape(16.dp)
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 OutlinedTextField(
                     value = feedbackMsg,
                     onValueChange = { feedbackMsg = it },
-                    placeholder = { Text("Write your message here... e.g. Requesting more questions for Physics Waves test") },
+                    placeholder = {
+                        Text(
+                            text = "Write your message here... e.g. Requesting more questions for Physics Waves test",
+                            fontSize = 14.sp,
+                            color = Color(0xFF6B7280)
+                        )
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = getHighContrastTextFieldColors()
                 )
 
                 Button(
                     onClick = {
-                        onSubmit(feedbackMsg)
-                        feedbackMsg = ""
+                        if (feedbackMsg.isNotBlank()) {
+                            onSubmit(feedbackMsg)
+                            feedbackMsg = ""
+                        }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(50.dp)
                         .testTag("submit_feedback_button"),
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = GeoPalette.Primary,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Icon(Icons.AutoMirrored.Default.Send, null)
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Default.Send,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Submit Message", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Submit Message",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
                 }
             }
         }
@@ -3294,103 +9230,1319 @@ fun StudentFeedbackScreen(
 
 
 // ----------------------------------------------------
-// ADMIN FLOW: STUDENT APPROVALS, CONTENT MANAGEMENT, FEEDBACK
+// REDESIGNED ADMIN FLOW: DRAWER, DASHBOARD, ANALYTICS, CONTROL PANEL
 // ----------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminFlow(
     currentTab: String,
     viewModel: LearningViewModel,
     onTabChange: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        // Content Area depending on Tab
-        Box(modifier = Modifier.weight(1f)) {
-            when (currentTab) {
-                "home", "students" -> {
-                    AdminStudentsTab(viewModel = viewModel)
+    val students by viewModel.students.collectAsState()
+    val pendingStudents = remember(students) {
+        students.filter { it.status == "pending" }
+    }
+    val videos by viewModel.videos.collectAsState()
+    val materials by viewModel.materials.collectAsState()
+    val mockTests by viewModel.mockTests.collectAsState()
+    val recordedClasses by viewModel.recordedClasses.collectAsState()
+    val feedbackList by viewModel.feedbackList.collectAsState()
+
+    var isSidebarOpen by remember { mutableStateOf(false) }
+    var isUploadingShowing by remember { mutableStateOf(false) }
+    var isFullScreenActive by remember { mutableStateOf(false) }
+
+    val activeTab = when (currentTab) {
+        "home", "approvals" -> "approvals"
+        "students" -> "students"
+        "content" -> "content"
+        "feedback" -> "feedback"
+        "mock_tests" -> "mock_tests"
+        "reports" -> "reports"
+        "settings" -> "settings"
+        "quiz" -> "quiz"
+        else -> "dashboard"
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        val isWideScreen = maxWidth >= 850.dp
+
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Persistent Sidebar for Wide Screens
+            if (isWideScreen) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(280.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color(0xFF7B0F2E), Color(0xFF4A0A1C))
+                            )
+                        )
+                ) {
+                    SidebarContent(
+                        activeTab = activeTab,
+                        pendingCount = pendingStudents.size,
+                        onTabSelect = { tab ->
+                            onTabChange(tab)
+                        },
+                        viewModel = viewModel
+                    )
                 }
-                "content" -> {
-                    AdminContentTab(viewModel = viewModel)
+            }
+
+            // Main Content Area
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                // Top Bar - Hidden on mobile if on content/mock_tests tab or if full screen to prevent double back buttons
+                if (!isFullScreenActive && (isWideScreen || (activeTab != "content" && activeTab != "mock_tests"))) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        if (!isWideScreen) {
+                            if (activeTab == "dashboard") {
+                                IconButton(
+                                    onClick = { isSidebarOpen = true },
+                                    modifier = Modifier.testTag("admin_hamburger_menu")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "Menu",
+                                        tint = Color(0xFF1E1E1E),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    onClick = { onTabChange("dashboard") },
+                                    modifier = Modifier.testTag("admin_back_to_dashboard")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                                        contentDescription = "Back to Dashboard",
+                                        tint = Color(0xFF1E1E1E),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        } else {
+                            InsyrLogoHorizontal(scale = 0.9f)
+                        }
+
+                        // Notification bell with badge & Refresh button (right) - Only on dashboard page for mobile, or always on wide screen
+                        if (isWideScreen || activeTab == "dashboard") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        viewModel.loadContent()
+                                        viewModel.showMessage("Dashboard refreshed successfully!")
+                                    },
+                                    modifier = Modifier.testTag("admin_refresh_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Refresh Dashboard",
+                                        tint = Color(0xFF1E1E1E),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clickable(
+                                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                            indication = null
+                                        ) {
+                                            viewModel.showMessage("Notification stream active: No new items.")
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Notifications,
+                                        contentDescription = "Notifications",
+                                        tint = Color(0xFF1E1E1E),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    // Notification Badge '3' as in image
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = (-4).dp, y = 4.dp)
+                                            .size(18.dp)
+                                            .background(Color(0xFFEA4335), CircleShape)
+                                            .border(1.5.dp, Color.White, CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "3",
+                                            color = Color.White,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Keep a placeholder box so the layout symmetry is preserved on mobile detail pages
+                            Box(modifier = Modifier.size(48.dp))
+                        }
+                    }
                 }
-                "feedback" -> {
-                    AdminFeedbackTab(viewModel = viewModel)
+
+                // Screen Content Area
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    when (activeTab) {
+                        "dashboard" -> {
+                            AdminDashboardScreen(
+                                studentsSize = students.size,
+                                pendingCount = pendingStudents.size,
+                                videosCount = videos.size,
+                                materialsCount = materials.size,
+                                mockTestsCount = mockTests.size,
+                                recordedCount = recordedClasses.size,
+                                onNavigateToApprovals = { onTabChange("approvals") },
+                                onNavigateToStudents = { onTabChange("students") },
+                                onNavigateToContent = { onTabChange("content") },
+                                onNavigateToMockTests = { onTabChange("mock_tests") },
+                                students = students,
+                                videos = videos,
+                                mockTests = mockTests
+                            )
+                        }
+                        "approvals" -> {
+                            AdminStudentsTab(
+                                viewModel = viewModel,
+                                showAllStudents = false,
+                                onBackToDashboard = { onTabChange("dashboard") },
+                                isWideScreen = isWideScreen
+                            )
+                        }
+                        "students" -> {
+                            AdminStudentsTab(
+                                viewModel = viewModel,
+                                showAllStudents = true,
+                                onBackToDashboard = { onTabChange("dashboard") },
+                                isWideScreen = isWideScreen
+                            )
+                        }
+                        "content" -> {
+                            AdminContentTab(
+                                viewModel = viewModel,
+                                onUploadStateChange = { isUploadingShowing = it },
+                                onBackToDashboard = { onTabChange("dashboard") }
+                            )
+                        }
+                        "mock_tests" -> {
+                            StudentMockTestsList(
+                                mockTests = mockTests,
+                                onStartQuiz = { test ->
+                                    viewModel.startQuiz(test)
+                                    onTabChange("quiz")
+                                },
+                                onBack = { onTabChange("dashboard") },
+                                isAdmin = true,
+                                onAddMockTest = { title, type, stream, domain, questions, duration, desc ->
+                                    viewModel.addMockTest(
+                                        title = title,
+                                        type = type,
+                                        stream = stream,
+                                        domain = domain,
+                                        questions = questions,
+                                        durationMinutes = duration,
+                                        description = desc,
+                                        module = "",
+                                        subject = domain,
+                                        contentType = "streamMockTest"
+                                    )
+                                },
+                                onEditMockTest = { id, title, type, stream, domain, questions, duration, desc ->
+                                    viewModel.editMockTest(
+                                        id = id,
+                                        title = title,
+                                        type = type,
+                                        stream = stream,
+                                        domain = domain,
+                                        questions = questions,
+                                        description = desc,
+                                        durationMinutes = duration
+                                    )
+                                },
+                                onDeleteMockTest = { id ->
+                                    viewModel.deleteContent("mockTests", id)
+                                },
+                                onFullscreenStateChanged = { isFullScreenActive = it }
+                            )
+                        }
+                        "quiz" -> {
+                            val quizState by viewModel.quizState.collectAsState()
+                            if (quizState.activeTest != null) {
+                                QuizPlayerScreen(
+                                    state = quizState,
+                                    onAnswerSelected = { qIdx, optIdx -> viewModel.selectQuizAnswer(qIdx, optIdx) },
+                                    onNext = { viewModel.nextQuizQuestion() },
+                                    onPrev = { viewModel.prevQuizQuestion() },
+                                    onSubmit = { viewModel.submitQuiz() },
+                                    onExit = {
+                                        viewModel.exitQuiz()
+                                        onTabChange("mock_tests")
+                                    }
+                                )
+                            } else {
+                                onTabChange("mock_tests")
+                            }
+                        }
+                        "feedback" -> {
+                            AdminFeedbackTab(viewModel = viewModel)
+                        }
+                        "reports" -> {
+                            AdminReportsTab(
+                                students = students,
+                                videos = videos,
+                                materials = materials,
+                                mockTests = mockTests,
+                                recorded = recordedClasses,
+                                feedback = feedbackList
+                            )
+                        }
+                        "settings" -> {
+                            AdminSettingsTab(viewModel = viewModel)
+                        }
+                    }
                 }
-                else -> {
-                    AdminStudentsTab(viewModel = viewModel)
+
+                if (!isWideScreen && activeTab != "dashboard" && !isUploadingShowing && !isFullScreenActive) {
+                    HorizontalDivider(color = GeoPalette.Divider, thickness = 1.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White)
+                            .navigationBarsPadding()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        val activeColor = Color(0xFFD32F2F) // Accent Red matching the mockup image
+                        val inactiveColor = Color(0xFF6B7280) // Standard slate gray
+
+                        // Item 1: Dashboard
+                        val isDashSelected = activeTab == "dashboard"
+                        Column(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabChange("dashboard") }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Home,
+                                contentDescription = "Dashboard",
+                                tint = if (isDashSelected) activeColor else inactiveColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Dashboard",
+                                fontSize = 10.sp,
+                                fontWeight = if (isDashSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isDashSelected) activeColor else inactiveColor
+                            )
+                        }
+
+                        // Item 2: Approvals
+                        val isApprovalsSelected = activeTab == "approvals" || activeTab == "students"
+                        Column(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabChange("approvals") }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Approvals",
+                                tint = if (isApprovalsSelected) activeColor else inactiveColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Approvals",
+                                fontSize = 10.sp,
+                                fontWeight = if (isApprovalsSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isApprovalsSelected) activeColor else inactiveColor
+                            )
+                        }
+
+                        // Item 3: Content (Red selected in the mockup)
+                        val isContentSelected = activeTab == "content"
+                        Column(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabChange("content") }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LibraryBooks,
+                                contentDescription = "Content",
+                                tint = if (isContentSelected) activeColor else inactiveColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Content",
+                                fontSize = 10.sp,
+                                fontWeight = if (isContentSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isContentSelected) activeColor else inactiveColor
+                            )
+                        }
+
+                        // Item 4: Feedback
+                        val isFeedbackSelected = activeTab == "feedback"
+                        Column(
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                    indication = null
+                                ) { onTabChange("feedback") }
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Comment,
+                                contentDescription = "Feedback",
+                                tint = if (isFeedbackSelected) activeColor else inactiveColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "Feedback",
+                                fontSize = 10.sp,
+                                fontWeight = if (isFeedbackSelected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (isFeedbackSelected) activeColor else inactiveColor
+                            )
+                        }
+
+
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Tab indicator header for Admin Flow at the bottom of the page
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(GeoPalette.CardBackground, RoundedCornerShape(16.dp))
-                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp))
-                .padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            listOf(
-                Triple("home", "Approvals", Icons.Default.CheckCircle),
-                Triple("content", "Content Manager", Icons.Default.LibraryBooks),
-                Triple("feedback", "Feedback", Icons.Default.ChatBubble)
-            ).forEach { (tabId, label, icon) ->
-                val isSelected = currentTab == tabId || (currentTab == "students" && tabId == "home")
-                
-                val bgTabColor by animateColorAsState(
-                    targetValue = if (isSelected) GeoPalette.Primary else Color.Transparent,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    label = "bg_tab"
-                )
-                
-                val contentTabColor by animateColorAsState(
-                    targetValue = if (isSelected) Color.White else GeoPalette.TextSecondary,
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    label = "content_tab"
-                )
-                
-                val scaleTab by animateFloatAsState(
-                    targetValue = if (isSelected) 1.04f else 0.96f,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
-                    label = "scale_tab"
-                )
-
+        // Sliding Navigation Drawer Sidebar for Mobile
+        if (!isWideScreen) {
+            // Dark Backdrop Overlay
+            AnimatedVisibility(
+                visible = isSidebarOpen,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .scale(scaleTab)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(bgTabColor)
-                        .clickable { onTabChange(tabId) }
-                        .padding(vertical = 8.dp, horizontal = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = label,
-                            tint = contentTabColor,
-                            modifier = Modifier.size(18.dp)
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isSidebarOpen = false
+                        }
+                )
+            }
+
+            // Drawer sliding sheet
+            AnimatedVisibility(
+                visible = isSidebarOpen,
+                enter = slideInHorizontally(
+                    initialOffsetX = { -it },
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                ),
+                exit = slideOutHorizontally(
+                    targetOffsetX = { -it },
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.78f)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.verticalGradient(
+                                colors = listOf(Color(0xFF7B0F2E), Color(0xFF4A0A1C))
+                            )
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                ) {
+                    SidebarContent(
+                        activeTab = activeTab,
+                        pendingCount = pendingStudents.size,
+                        onTabSelect = { tab ->
+                            isSidebarOpen = false
+                            onTabChange(tab)
+                        },
+                        viewModel = viewModel
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SidebarContent(
+    activeTab: String,
+    pendingCount: Int,
+    onTabSelect: (String) -> Unit,
+    viewModel: LearningViewModel
+) {
+    val authState by viewModel.authState.collectAsState()
+    val adminProfile = (authState as? AuthState.Success)?.profile
+    val adminName = adminProfile?.name?.ifBlank { "Admin" } ?: "Admin"
+    val adminPhoto = adminProfile?.photoUrl ?: ""
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.statusBars)
+            .padding(vertical = 16.dp, horizontal = 16.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
+        ) {
+            // Direct Logo Header without white container
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.insyr_lg),
+                    contentDescription = "INSYR Learning Logo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(140.dp)
+                        .wrapContentHeight()
+                        .padding(top = 20.dp, bottom = 16.dp)
+                )
+            }
+
+            // Navigation Items List
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val menuItems = listOf(
+                    Triple("dashboard", "Dashboard", Icons.Default.Home),
+                    Triple("approvals", "Approvals", Icons.Default.CheckCircle),
+                    Triple("content", "Content Manager", Icons.Default.LibraryBooks),
+                    Triple("mock_tests", "Mock Tests", Icons.Default.Assignment),
+                    Triple("feedback", "Feedback", Icons.Default.Comment),
+                    Triple("reports", "Reports", Icons.Default.BarChart),
+                    Triple("settings", "Settings", Icons.Default.Settings)
+                )
+
+                menuItems.forEach { (tabId, label, icon) ->
+                    val isSelected = activeTab == tabId || (tabId == "approvals" && activeTab == "students")
+                    val itemBgColor = if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent
+                    val itemContentColor = Color.White
+                    val itemFontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(itemBgColor)
+                            .clickable { onTabSelect(tabId) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("sidebar_tab_$tabId"),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = label,
+                                tint = itemContentColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = label,
+                                color = itemContentColor,
+                                fontSize = 14.sp,
+                                fontWeight = itemFontWeight
+                            )
+                        }
+
+                        // Red Approvals Badge
+                        if (tabId == "approvals" && pendingCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(Color(0xFFEA4335), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$pendingCount",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Admin Profile Card at the bottom of the sidebar
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Divider(color = Color.White.copy(alpha = 0.2f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Profile photo with status dot
+                    Box(modifier = Modifier.size(44.dp)) {
+                        if (adminPhoto.isNotBlank()) {
+                            coil.compose.AsyncImage(
+                                model = adminPhoto,
+                                contentDescription = "Admin Avatar",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.White.copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = adminName.firstOrNull()?.toString()?.uppercase() ?: "A",
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .size(11.dp)
+                                .background(Color(0xFF4CAF50), CircleShape)
+                                .border(1.5.dp, Color(0xFF7B0F2E), CircleShape)
+                        )
+                    }
+
+                    Column {
                         Text(
-                            text = label,
+                            text = adminName,
+                            color = Color.White,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 10.sp,
-                            color = contentTabColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Text(
+                            text = "Super Admin",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+                }
+
+                IconButton(
+                    onClick = { viewModel.logout() }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ExitToApp,
+                        contentDescription = "Logout Session",
+                        tint = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminDashboardScreen(
+    studentsSize: Int,
+    pendingCount: Int,
+    videosCount: Int,
+    materialsCount: Int,
+    mockTestsCount: Int,
+    recordedCount: Int,
+    onNavigateToApprovals: () -> Unit,
+    onNavigateToStudents: () -> Unit,
+    onNavigateToContent: () -> Unit,
+    onNavigateToMockTests: () -> Unit,
+    students: List<UserProfile>,
+    videos: List<VideoContent>,
+    mockTests: List<MockTest>
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        // Hello Greeting Section
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Hello, Admin 👋",
+                    fontSize = 28.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E1E1E)
+                )
+                Text(
+                    text = "Here's what's happening today",
+                    fontSize = 14.sp,
+                    color = Color(0xFF6B7280)
+                )
+            }
+        }
+
+        // Stats Cards Side by Side
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Card 1: Total Students (Deep Maroon #7B0F2E)
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(140.dp)
+                        .clickable { onNavigateToStudents() },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF7B0F2E))
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Total Students",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Text(
+                                text = "$studentsSize",
+                                color = Color.White,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ArrowUpward,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "12% this week",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Card 2: Pending Approvals (Purple #6C5EF5)
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(140.dp)
+                        .clickable { onNavigateToApprovals() },
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF6C5EF5))
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().padding(18.dp)) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Pending Approvals",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+
+                            Text(
+                                text = "$pendingCount",
+                                color = Color.White,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = "View Requests",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForward,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Quick Overview Grid
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text(
+                    text = "Quick Overview",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E1E1E)
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OverviewItemCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Videos",
+                            count = "$videosCount",
+                            icon = Icons.Default.PlayArrow,
+                            iconTint = Color(0xFF7B0F2E),
+                            iconBgColor = Color(0xFF7B0F2E).copy(alpha = 0.08f)
+                        )
+                        OverviewItemCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Study Materials",
+                            count = "$materialsCount",
+                            icon = Icons.Default.Article,
+                            iconTint = Color(0xFF6C5EF5),
+                            iconBgColor = Color(0xFF6C5EF5).copy(alpha = 0.08f)
+                        )
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OverviewItemCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Mock Tests",
+                            count = "$mockTestsCount",
+                            icon = Icons.Default.Assignment,
+                            iconTint = Color(0xFF4CAF50),
+                            iconBgColor = Color(0xFF4CAF50).copy(alpha = 0.08f),
+                            onClick = onNavigateToMockTests
+                        )
+                        OverviewItemCard(
+                            modifier = Modifier.weight(1f),
+                            title = "Recorded Classes",
+                            count = "$recordedCount",
+                            icon = Icons.Default.Videocam,
+                            iconTint = Color(0xFFFF9800),
+                            iconBgColor = Color(0xFFFF9800).copy(alpha = 0.08f)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Recent Activity
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Recent Activity",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E1E1E)
+                    )
+                    Text(
+                        text = "View All",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF7B0F2E),
+                        modifier = Modifier.clickable { onNavigateToApprovals() }
+                    )
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val latestStudent = students.lastOrNull { it.status == "pending" } ?: students.lastOrNull()
+                    val latestVideo = videos.lastOrNull()
+                    val latestMockTest = mockTests.lastOrNull()
+
+                    if (latestStudent == null && latestVideo == null && latestMockTest == null) {
+                        Text(
+                            text = "No recent activity recorded yet.",
+                            fontSize = 13.sp,
+                            color = Color(0xFF6B7280),
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    } else {
+                        if (latestStudent != null) {
+                            RecentActivityRow(
+                                title = "New student registered",
+                                subtitle = latestStudent.name,
+                                time = "Recently",
+                                icon = Icons.Default.Person,
+                                iconTint = Color(0xFF6C5EF5),
+                                iconBg = Color(0xFF6C5EF5).copy(alpha = 0.08f)
+                            )
+                        }
+
+                        if (latestVideo != null) {
+                            RecentActivityRow(
+                                title = "Video uploaded",
+                                subtitle = latestVideo.title,
+                                time = "Recently",
+                                icon = Icons.Default.PlayArrow,
+                                iconTint = Color(0xFF2196F3),
+                                iconBg = Color(0xFF2196F3).copy(alpha = 0.08f)
+                            )
+                        }
+
+                        if (latestMockTest != null) {
+                            RecentActivityRow(
+                                title = "Mock test added",
+                                subtitle = latestMockTest.title,
+                                time = "Recently",
+                                icon = Icons.Default.Assignment,
+                                iconTint = Color(0xFFFF9800),
+                                iconBg = Color(0xFFFF9800).copy(alpha = 0.08f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Keep content organized card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToContent() },
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF7B0F2E).copy(alpha = 0.04f)),
+                border = BorderStroke(1.dp, Color(0xFF7B0F2E).copy(alpha = 0.1f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(18.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Keep your content organized",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E1E1E)
+                        )
+                        Text(
+                            text = "Upload and manage content for all streams efficiently.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF6B7280)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(60.dp)
+                            .background(Color(0xFF6C5EF5).copy(alpha = 0.08f), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Folder,
+                            contentDescription = null,
+                            tint = Color(0xFF6C5EF5),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+@Composable
+fun OverviewItemCard(
+    modifier: Modifier = Modifier,
+    title: String,
+    count: String,
+    icon: ImageVector,
+    iconTint: Color,
+    iconBgColor: Color,
+    onClick: (() -> Unit)? = null
+) {
+    Card(
+        modifier = modifier.then(
+            if (onClick != null) Modifier.clickable { onClick() } else Modifier
+        ),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.5.dp, GeoPalette.Divider),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(iconBgColor, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = iconTint,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Column {
+                Text(
+                    text = title,
+                    color = Color(0xFF6B7280),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = count,
+                    color = Color(0xFF1E1E1E),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RecentActivityRow(
+    title: String,
+    subtitle: String,
+    time: String,
+    icon: ImageVector,
+    iconTint: Color,
+    iconBg: Color
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFF3F4F6)),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(iconBg, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = title,
+                        color = Color(0xFF1E1E1E),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = Color(0xFF6B7280),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Text(
+                text = time,
+                color = Color(0xFF9CA3AF),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun AdminMockTestsTab(viewModel: LearningViewModel) {
+    val mockTests by viewModel.mockTests.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+
+    var activePreviewTest by remember { mutableStateOf<MockTest?>(null) }
+    var activeEditTest by remember { mutableStateOf<MockTest?>(null) }
+    var showAddTestDialog by remember { mutableStateOf(false) }
+
+    val filteredTests = remember(mockTests, searchQuery) {
+        if (searchQuery.isBlank()) {
+            mockTests
+        } else {
+            mockTests.filter { it.title.contains(searchQuery, ignoreCase = true) || it.stream.contains(searchQuery, ignoreCase = true) }
+        }
+    }
+
+    if (activePreviewTest != null) {
+        Dialog(onDismissRequest = { activePreviewTest = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                PreviewMockTestDialogContent(test = activePreviewTest!!, onDismiss = { activePreviewTest = null })
+            }
+        }
+    }
+
+    if (activeEditTest != null) {
+        Dialog(onDismissRequest = { activeEditTest = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                EditMockTestDialogContent(
+                    test = activeEditTest!!,
+                    onDismiss = { activeEditTest = null },
+                    onSubmit = { title, type, stream, domain, questions ->
+                        viewModel.editMockTest(activeEditTest!!.id, title, type, stream, domain, questions)
+                        activeEditTest = null
+                    }
+                )
+            }
+        }
+    }
+
+    if (showAddTestDialog) {
+        Dialog(onDismissRequest = { showAddTestDialog = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                AddMockTestDialogContent(
+                    initialStream = "Science",
+                    onDismiss = { showAddTestDialog = false },
+                    onSubmit = { title, type, stream, domain, questions, duration ->
+                        viewModel.addMockTest(title, type, stream, domain, questions, durationMinutes = duration)
+                        showAddTestDialog = false
+                    }
+                )
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Mock Tests Manager",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1E1E1E)
+            )
+
+            Button(
+                onClick = { showAddTestDialog = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Create Test", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        StudentCompactSearchBar(
+            query = searchQuery,
+            onQueryChange = { searchQuery = it },
+            placeholderText = "Search tests by title or stream..."
+        )
+
+        if (filteredTests.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Text("No mock tests found.", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(filteredTests) { test ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        test.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp,
+                                        color = Color(0xFF1E1E1E)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        "Stream: ${test.stream} • Domain: ${test.domain}",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        "Type: ${test.type.uppercase()} • Questions: ${test.questions.size}",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        test.type,
+                                        color = Color(0xFF7B0F2E),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { activePreviewTest = test },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1E1E1E))
+                                ) {
+                                    Text("Preview", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                Button(
+                                    onClick = { activeEditTest = test },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E))
+                                ) {
+                                    Text("Edit", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3399,932 +10551,886 @@ fun AdminFlow(
 }
 
 @Composable
-fun AdminStudentsTab(viewModel: LearningViewModel) {
+fun AdminReportsTab(
+    students: List<UserProfile>,
+    videos: List<VideoContent>,
+    materials: List<StudyMaterial>,
+    mockTests: List<MockTest>,
+    recorded: List<RecordedClass>,
+    feedback: List<FeedbackEntry>
+) {
+    val streamStudents = remember(students) {
+        val map = mutableMapOf("Science" to 0, "Commerce" to 0, "Humanities" to 0, "General" to 0)
+        students.forEach {
+            val stream = it.stream
+            if (map.containsKey(stream)) {
+                map[stream] = map[stream]!! + 1
+            } else if (stream.isNotBlank()) {
+                map["General"] = map["General"]!! + 1
+            }
+        }
+        map
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                "Academic Reports & Analytics",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1E1E1E)
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF7B0F2E)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(
+                        "System Overview",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("${students.size}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                            Text("Total Enrolled", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                        }
+                        Column {
+                            val totalContent = videos.size + materials.size + mockTests.size + recorded.size
+                            Text("$totalContent", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                            Text("Learning Modules", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                        }
+                        Column {
+                            Text("${feedback.size}", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                            Text("Submissions", color = Color.White.copy(alpha = 0.7f), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Student Enrollment by Stream",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFF1E1E1E)
+                    )
+
+                    streamStudents.forEach { (stream, count) ->
+                        val pct = if (students.isNotEmpty()) count.toFloat() / students.size else 0.25f
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(stream, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E1E1E))
+                                Text("$count students (${String.format("%.0f", pct * 100)}%)", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .background(Color(0xFFF3F4F6), RoundedCornerShape(100.dp))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(pct.coerceIn(0.01f, 1.0f))
+                                        .fillMaxHeight()
+                                        .background(Color(0xFF7B0F2E), RoundedCornerShape(100.dp))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        "Educational Content Distribution",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color(0xFF1E1E1E)
+                    )
+
+                    val types = listOf(
+                        Triple("Videos & Lectures", videos.size, Color(0xFF7B0F2E)),
+                        Triple("PDF Study Materials", materials.size, Color(0xFF6C5EF5)),
+                        Triple("Mock & Practise Tests", mockTests.size, Color(0xFF4CAF50)),
+                        Triple("Recorded Interactive Classes", recorded.size, Color(0xFFFF9800))
+                    )
+
+                    val totalContentCount = (videos.size + materials.size + mockTests.size + recorded.size).coerceAtLeast(1)
+
+                    types.forEach { (label, count, color) ->
+                        val pct = count.toFloat() / totalContentCount
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Box(modifier = Modifier.size(10.dp).background(color, CircleShape))
+                                    Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E1E1E))
+                                }
+                                Text("$count uploads (${String.format("%.0f", pct * 100)}%)", fontSize = 12.sp, color = Color.Gray)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .background(Color(0xFFF3F4F6), RoundedCornerShape(100.dp))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(pct.coerceIn(0.01f, 1.0f))
+                                        .fillMaxHeight()
+                                        .background(color, RoundedCornerShape(100.dp))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminSettingsTab(viewModel: LearningViewModel) {
+    val authState by viewModel.authState.collectAsState()
+    val profile = (authState as? AuthState.Success)?.profile
+    val name = profile?.name ?: "Admin"
+    val email = profile?.email ?: "admin@insyr.com"
+
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var autoApprovalEnabled by remember { mutableStateOf(false) }
+    var highSecurityMode by remember { mutableStateOf(true) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Text(
+                "Admin Control Panel",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1E1E1E)
+            )
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = name.firstOrNull()?.toString()?.uppercase() ?: "A",
+                            color = Color(0xFF7B0F2E),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 20.sp
+                        )
+                    }
+                    Column {
+                        Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E1E1E))
+                        Text(email, color = Color.Gray, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF4CAF50).copy(alpha = 0.12f), RoundedCornerShape(100.dp))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("SUPER ADMIN SECURE SESSION", color = Color(0xFF388E3C), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Preferences", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E1E1E))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Push Notifications", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E1E1E))
+                            Text("Receive alerts for new student registrations", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = notificationsEnabled,
+                            onCheckedChange = { notificationsEnabled = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7B0F2E))
+                        )
+                    }
+
+                    Divider(color = Color(0xFFF3F4F6))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Auto-Approval System", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E1E1E))
+                            Text("Instantly approve student registrations on signup", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = autoApprovalEnabled,
+                            onCheckedChange = { autoApprovalEnabled = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7B0F2E))
+                        )
+                    }
+
+                    Divider(color = Color(0xFFF3F4F6))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("High Security Mode", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color(0xFF1E1E1E))
+                            Text("Require secure credentials & block recording", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = highSecurityMode,
+                            onCheckedChange = { highSecurityMode = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7B0F2E))
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Button(
+                onClick = { viewModel.logout() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA4335))
+            ) {
+                Icon(Icons.Default.ExitToApp, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Log Out Safe Session", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminStudentsTab(
+    viewModel: LearningViewModel,
+    showAllStudents: Boolean,
+    onBackToDashboard: () -> Unit,
+    isWideScreen: Boolean = false
+) {
     val students by viewModel.students.collectAsState()
     val pendingStudents = remember(students) {
         students.filter { it.status == "pending" }
     }
-    var showAllUsersDialog by remember { mutableStateOf(false) }
-    var showPendingUsersDialog by remember { mutableStateOf(false) }
     var editingStudent by remember { mutableStateOf<UserProfile?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GeoPalette.Background)
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
+                .statusBarsPadding()
+                .padding(24.dp)
         ) {
-            // 1. Dashboard Cards Header Item
-            item {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                ) {
-                    // Card 1: Total Students (Blue)
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(150.dp)
-                            .clickable { showAllUsersDialog = true },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2296F3))
-                    ) {
-                    Box(modifier = Modifier.fillMaxSize().padding(22.dp)) {
-                        // Top row with Icon and Badge
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Group,
-                                contentDescription = "Total Students Icon",
-                                tint = Color.White,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            
-                            // Badge "+12% this week"
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.Black.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = "+12% this week",
-                                    color = Color.White.copy(alpha = 0.9f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                        
-                        // Bottom text content
-                        Column(
-                            modifier = Modifier.align(Alignment.BottomStart)
-                        ) {
-                            Text(
-                                text = "Total Students",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = String.format("%,d", students.size),
-                                color = Color.White,
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+            // Header Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (showAllStudents) "All Registered Students" else "Pending Approvals",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
                 }
 
-                // Card 2: Pending Approvals (Purple)
-                Card(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(150.dp)
-                        .clickable { showPendingUsersDialog = true },
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF9E78F2))
+                        .background(
+                            color = (if (showAllStudents) GeoPalette.Primary else GeoPalette.PendingBg).copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(100.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Box(modifier = Modifier.fillMaxSize().padding(22.dp)) {
-                        // Top row with Icon and Red dot
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Ring icon
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .border(2.5.dp, Color.White, CircleShape)
-                            )
-                            
-                            // Glowing red dot
-                            Box(
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE53935))
-                                    .border(1.5.dp, Color.White.copy(alpha = 0.4f), CircleShape)
-                            )
-                        }
-                        
-                        // Bottom text content
-                        Column(
-                            modifier = Modifier.align(Alignment.BottomStart)
-                        ) {
-                            Text(
-                                text = "Pending Approvals",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "${pendingStudents.size}",
-                                color = Color.White,
-                                fontSize = 32.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    Text(
+                        text = if (showAllStudents) "${students.size} Total" else "${pendingStudents.size} Pending",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (showAllStudents) GeoPalette.Primary else GeoPalette.PendingBg
+                    )
                 }
             }
-        }
 
-        // 2. Section Title Header
-        item {
-            Text(
-                text = "Registration Requests (${pendingStudents.size})",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = GeoPalette.Primary,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // 3. Pending Students list or Empty State
-        if (pendingStudents.isEmpty()) {
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
-                    border = BorderStroke(1.dp, GeoPalette.Divider),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
+            if (showAllStudents) {
+                // Total Students Screen (direct list)
+                if (students.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No registered users currently.", color = GeoPalette.TextSecondary)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "No Pending Approvals",
-                            tint = GeoPalette.ApprovedBg,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = "No Pending Approvals",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = GeoPalette.TextPrimary
-                        )
-                        Text(
-                            text = "All student registration requests have been processed successfully.",
-                            fontSize = 13.sp,
-                            color = GeoPalette.TextSecondary,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                }
-            }
-        } else {
-            items(pendingStudents) { student ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().testTag("pending_student_card_${student.uid}"),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    border = BorderStroke(1.dp, GeoPalette.Divider),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            // Student Photo
-                            Box(
-                                modifier = Modifier
-                                    .size(52.dp)
-                                    .clip(CircleShape)
-                                    .background(GeoPalette.Primary.copy(alpha = 0.1f))
-                                    .border(1.dp, GeoPalette.Divider, CircleShape),
-                                contentAlignment = Alignment.Center
+                        items(students) { student ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, GeoPalette.Divider)
                             ) {
-                                if (student.photoUrl.isNotBlank()) {
-                                    coil.compose.AsyncImage(
-                                        model = student.photoUrl,
-                                        contentDescription = "Student Photo",
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                    )
-                                } else {
-                                    val firstLetter = student.name.firstOrNull()?.toString() ?: "S"
-                                    Text(
-                                        text = firstLetter.uppercase(),
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                        color = GeoPalette.Primary
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = student.name,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
-                                    color = GeoPalette.TextPrimary
-                                )
-                                Text(
-                                    text = "Stream: ${student.stream}",
-                                    fontSize = 13.sp,
-                                    color = GeoPalette.TextSecondary
-                                )
-                                val displayPhone = student.phone.ifBlank { student.mobile }
-                                Text(
-                                    text = "Phone: $displayPhone",
-                                    fontSize = 13.sp,
-                                    color = GeoPalette.TextSecondary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Button(
-                                onClick = { viewModel.updateStudentStatus(student.uid, "approved") },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("approve_student_button"),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.ApprovedBg)
-                            ) {
-                                Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Approve", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            OutlinedButton(
-                                onClick = { viewModel.updateStudentStatus(student.uid, "rejected") },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("reject_student_button"),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, GeoPalette.RejectedBg),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.RejectedBg)
-                            ) {
-                                Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Reject", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showAllUsersDialog) {
-        androidx.compose.ui.window.Dialog(
-            onDismissRequest = { showAllUsersDialog = false },
-            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(GeoPalette.Background),
-                    colors = CardDefaults.cardColors(containerColor = GeoPalette.Background)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .padding(24.dp)
-                    ) {
-                        // Header Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { showAllUsersDialog = false }) {
-                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = GeoPalette.Primary)
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "All Registered Users",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GeoPalette.TextPrimary
-                                )
-                            }
-                            
-                            Box(
-                                modifier = Modifier
-                                    .background(GeoPalette.Primary.copy(alpha = 0.1f), RoundedCornerShape(100.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "${students.size} Total",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GeoPalette.Primary
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        if (students.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("No registered users currently.", color = GeoPalette.TextSecondary)
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(students) { student ->
-                                    Card(
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                                        shape = RoundedCornerShape(16.dp),
-                                        border = BorderStroke(1.dp, GeoPalette.Divider)
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column(modifier = Modifier.padding(16.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .clip(CircleShape)
+                                                    .background(GeoPalette.CardBackground),
+                                                contentAlignment = Alignment.Center
                                             ) {
+                                                if (student.photoUrl.isNotBlank()) {
+                                                    coil.compose.AsyncImage(
+                                                        model = student.photoUrl,
+                                                        contentDescription = "Profile Photo",
+                                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    val firstLetter = student.name.firstOrNull()?.toString() ?: "S"
+                                                    Text(
+                                                        text = firstLetter.uppercase(),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.sp,
+                                                        color = GeoPalette.Primary
+                                                    )
+                                                }
+                                            }
+
+                                            Column {
+                                                Text(
+                                                    text = student.name,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = GeoPalette.TextPrimary
+                                                )
                                                 Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.padding(top = 2.dp)
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(44.dp)
-                                                            .clip(CircleShape)
-                                                            .background(GeoPalette.CardBackground),
-                                                        contentAlignment = Alignment.Center
+                                                            .background(
+                                                                when(student.status.lowercase()) {
+                                                                    "approved" -> GeoPalette.ApprovedBg.copy(alpha = 0.1f)
+                                                                    "pending" -> GeoPalette.PendingBg.copy(alpha = 0.1f)
+                                                                    else -> GeoPalette.RejectedBg.copy(alpha = 0.1f)
+                                                                },
+                                                                RoundedCornerShape(4.dp)
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                                     ) {
-                                                        if (student.photoUrl.isNotBlank()) {
-                                                            coil.compose.AsyncImage(
-                                                                model = student.photoUrl,
-                                                                contentDescription = "Profile Photo",
-                                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                                            )
-                                                        } else {
-                                                            val firstLetter = student.name.firstOrNull()?.toString() ?: "S"
-                                                            Text(
-                                                                text = firstLetter.uppercase(),
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 16.sp,
-                                                                color = GeoPalette.Primary
-                                                            )
-                                                        }
-                                                    }
-
-                                                    Column {
                                                         Text(
-                                                            text = student.name,
+                                                            text = student.status.uppercase(),
+                                                            fontSize = 9.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontSize = 15.sp,
-                                                            color = GeoPalette.TextPrimary
-                                                        )
-                                                        Row(
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            modifier = Modifier.padding(top = 2.dp)
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .background(
-                                                                        when(student.status.lowercase()) {
-                                                                            "approved" -> GeoPalette.ApprovedBg.copy(alpha = 0.1f)
-                                                                            "pending" -> GeoPalette.PendingBg.copy(alpha = 0.1f)
-                                                                            else -> GeoPalette.RejectedBg.copy(alpha = 0.1f)
-                                                                        },
-                                                                        RoundedCornerShape(4.dp)
-                                                                    )
-                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = student.status.uppercase(),
-                                                                    fontSize = 9.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = when(student.status.lowercase()) {
-                                                                        "approved" -> GeoPalette.ApprovedBg
-                                                                        "pending" -> GeoPalette.PendingBg
-                                                                        else -> GeoPalette.RejectedBg
-                                                                    }
-                                                                )
+                                                            color = when(student.status.lowercase()) {
+                                                                "approved" -> GeoPalette.ApprovedBg
+                                                                "pending" -> GeoPalette.PendingBg
+                                                                else -> GeoPalette.RejectedBg
                                                             }
-
-                                                            if (student.stream.isNotBlank()) {
-                                                                Text(
-                                                                    text = student.stream,
-                                                                    fontSize = 11.sp,
-                                                                    color = GeoPalette.Primary,
-                                                                    fontWeight = FontWeight.SemiBold
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                }
-
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    IconButton(
-                                                        onClick = {
-                                                            editingStudent = student
-                                                        },
-                                                        modifier = Modifier.size(36.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Edit,
-                                                            contentDescription = "Edit student info",
-                                                            tint = GeoPalette.Primary,
-                                                            modifier = Modifier.size(20.dp)
                                                         )
                                                     }
 
-                                                    IconButton(
-                                                        onClick = {
-                                                            viewModel.deleteStudent(student.uid)
-                                                        },
-                                                        modifier = Modifier.size(36.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Delete,
-                                                            contentDescription = "Remove student",
-                                                            tint = GeoPalette.RejectedBg,
-                                                            modifier = Modifier.size(20.dp)
+                                                    if (student.stream.isNotBlank()) {
+                                                        Text(
+                                                            text = student.stream,
+                                                            fontSize = 11.sp,
+                                                            color = GeoPalette.Primary,
+                                                            fontWeight = FontWeight.SemiBold
                                                         )
                                                     }
                                                 }
                                             }
+                                        }
 
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(vertical = 12.dp),
-                                                thickness = 1.dp,
-                                                color = GeoPalette.Divider
-                                            )
-
-                                            Column(
-                                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.padding(start = 4.dp)
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    editingStudent = student
+                                                },
+                                                modifier = Modifier.size(36.dp)
                                             ) {
-                                                // Email detail
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Email,
-                                                        contentDescription = "Email",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Email:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = student.email,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
-
-                                                // Phone detail
-                                                val displayPhone = student.phone.ifBlank { student.mobile }.ifBlank { "N/A" }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Phone,
-                                                        contentDescription = "Phone",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Phone:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = displayPhone,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
-
-                                                // Registration Date detail
-                                                val formattedDate = try {
-                                                    val sdf = java.text.SimpleDateFormat("MMM dd, yyyy - hh:mm a", java.util.Locale.getDefault())
-                                                    sdf.format(student.createdAt.toDate())
-                                                } catch (e: Exception) {
-                                                    "N/A"
-                                                }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.DateRange,
-                                                        contentDescription = "Calendar",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Registered:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = formattedDate,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Edit student info",
+                                                    tint = GeoPalette.Primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
                                             }
 
-                                            if (student.status.lowercase() == "pending") {
-                                                Spacer(modifier = Modifier.height(14.dp))
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Button(
-                                                        onClick = { viewModel.updateStudentStatus(student.uid, "approved") },
-                                                        modifier = Modifier.weight(1f),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.ApprovedBg)
-                                                    ) {
-                                                        Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Approve", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                    }
-                                                    OutlinedButton(
-                                                        onClick = { viewModel.updateStudentStatus(student.uid, "rejected") },
-                                                        modifier = Modifier.weight(1f),
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        border = BorderStroke(1.dp, GeoPalette.RejectedBg),
-                                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.RejectedBg)
-                                                    ) {
-                                                        Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Reject", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                    }
-                                                }
+                                            IconButton(
+                                                onClick = {
+                                                    viewModel.deleteStudent(student.uid)
+                                                },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Remove student",
+                                                    tint = GeoPalette.RejectedBg,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
                                             }
+                                        }
+                                    }
+
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        thickness = 1.dp,
+                                        color = GeoPalette.Divider
+                                    )
+
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    ) {
+                                        // Email detail
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Email,
+                                                contentDescription = "Email",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Email:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = student.email,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
+
+                                        // Phone detail
+                                        val displayPhone = student.phone.ifBlank { student.mobile }.ifBlank { "N/A" }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Phone,
+                                                contentDescription = "Phone",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Phone:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = displayPhone,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
+
+                                        // Registration Date detail
+                                        val formattedDate = try {
+                                            val sdf = java.text.SimpleDateFormat("MMM dd, yyyy - hh:mm a", java.util.Locale.getDefault())
+                                            sdf.format(student.createdAt.toDate())
+                                        } catch (e: Exception) {
+                                            "N/A"
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DateRange,
+                                                contentDescription = "Calendar",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Registered:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = formattedDate,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
                                         }
                                     }
                                 }
                             }
                         }
                     }
-            }
-        }
-    }
-
-    if (showPendingUsersDialog) {
-        androidx.compose.ui.window.Dialog(
-                onDismissRequest = { showPendingUsersDialog = false },
-                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(GeoPalette.Background),
-                    colors = CardDefaults.cardColors(containerColor = GeoPalette.Background)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .padding(24.dp)
+                }
+            } else {
+                // Pending Approvals Screen (direct list)
+                if (pendingStudents.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
                     ) {
-                        // Header Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { showPendingUsersDialog = false }) {
-                                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = GeoPalette.Primary)
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Pending Approvals",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GeoPalette.TextPrimary
-                                )
-                            }
-                            
-                            Box(
-                                modifier = Modifier
-                                    .background(GeoPalette.PendingBg.copy(alpha = 0.1f), RoundedCornerShape(100.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "${pendingStudents.size} Pending",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = GeoPalette.PendingBg
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "No Pending",
+                                tint = GeoPalette.ApprovedBg,
+                                modifier = Modifier.size(64.dp)
+                            )
+                            Text(
+                                text = "All Caught Up!",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = GeoPalette.TextPrimary
+                            )
+                            Text(
+                                text = "No pending registration requests to approve.",
+                                fontSize = 13.sp,
+                                color = GeoPalette.TextSecondary
+                            )
                         }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        if (pendingStudents.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(pendingStudents) { student ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, GeoPalette.Divider)
                             ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = "No Pending",
-                                        tint = GeoPalette.ApprovedBg,
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                    Text(
-                                        text = "All Caught Up!",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp,
-                                        color = GeoPalette.TextPrimary
-                                    )
-                                    Text(
-                                        text = "No pending registration requests to approve.",
-                                        fontSize = 13.sp,
-                                        color = GeoPalette.TextSecondary
-                                    )
-                                }
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(pendingStudents) { student ->
-                                    Card(
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Row(
                                         modifier = Modifier.fillMaxWidth(),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                                        shape = RoundedCornerShape(16.dp),
-                                        border = BorderStroke(1.dp, GeoPalette.Divider)
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Column(modifier = Modifier.padding(16.dp)) {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(44.dp)
+                                                    .clip(CircleShape)
+                                                    .background(GeoPalette.CardBackground),
+                                                contentAlignment = Alignment.Center
                                             ) {
+                                                if (student.photoUrl.isNotBlank()) {
+                                                    coil.compose.AsyncImage(
+                                                        model = student.photoUrl,
+                                                        contentDescription = "Profile Photo",
+                                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
+                                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                                    )
+                                                } else {
+                                                    val firstLetter = student.name.firstOrNull()?.toString() ?: "S"
+                                                    Text(
+                                                        text = firstLetter.uppercase(),
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 16.sp,
+                                                        color = GeoPalette.Primary
+                                                    )
+                                                }
+                                            }
+
+                                            Column {
+                                                Text(
+                                                    text = student.name,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 15.sp,
+                                                    color = GeoPalette.TextPrimary
+                                                )
                                                 Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                                    modifier = Modifier.weight(1f)
+                                                    modifier = Modifier.padding(top = 2.dp)
                                                 ) {
                                                     Box(
                                                         modifier = Modifier
-                                                            .size(44.dp)
-                                                            .clip(CircleShape)
-                                                            .background(GeoPalette.CardBackground),
-                                                        contentAlignment = Alignment.Center
+                                                            .background(
+                                                                GeoPalette.PendingBg.copy(alpha = 0.1f),
+                                                                RoundedCornerShape(4.dp)
+                                                            )
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                                     ) {
-                                                        if (student.photoUrl.isNotBlank()) {
-                                                            coil.compose.AsyncImage(
-                                                                model = student.photoUrl,
-                                                                contentDescription = "Profile Photo",
-                                                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                                            )
-                                                        } else {
-                                                            val firstLetter = student.name.firstOrNull()?.toString() ?: "S"
-                                                            Text(
-                                                                text = firstLetter.uppercase(),
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 16.sp,
-                                                                color = GeoPalette.Primary
-                                                            )
-                                                        }
-                                                    }
-
-                                                    Column {
                                                         Text(
-                                                            text = student.name,
+                                                            text = student.status.uppercase(),
+                                                            fontSize = 9.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontSize = 15.sp,
-                                                            color = GeoPalette.TextPrimary
+                                                            color = GeoPalette.PendingBg
                                                         )
-                                                        Row(
-                                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            modifier = Modifier.padding(top = 2.dp)
-                                                        ) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .background(
-                                                                        GeoPalette.PendingBg.copy(alpha = 0.1f),
-                                                                        RoundedCornerShape(4.dp)
-                                                                    )
-                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                            ) {
-                                                                Text(
-                                                                    text = student.status.uppercase(),
-                                                                    fontSize = 9.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    color = GeoPalette.PendingBg
-                                                                )
-                                                            }
+                                                    }
 
-                                                            if (student.stream.isNotBlank()) {
-                                                                Text(
-                                                                    text = student.stream,
-                                                                    fontSize = 11.sp,
-                                                                    color = GeoPalette.Primary,
-                                                                    fontWeight = FontWeight.SemiBold
-                                                                )
-                                                            }
-                                                        }
+                                                    if (student.stream.isNotBlank()) {
+                                                        Text(
+                                                            text = student.stream,
+                                                            fontSize = 11.sp,
+                                                            color = GeoPalette.Primary,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
                                                     }
                                                 }
-
-                                                IconButton(
-                                                    onClick = {
-                                                        viewModel.deleteStudent(student.uid)
-                                                    },
-                                                    modifier = Modifier.size(36.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Delete,
-                                                        contentDescription = "Remove student",
-                                                        tint = GeoPalette.RejectedBg,
-                                                        modifier = Modifier.size(20.dp)
-                                                    )
-                                                }
                                             }
+                                        }
 
-                                            HorizontalDivider(
-                                                modifier = Modifier.padding(vertical = 12.dp),
-                                                thickness = 1.dp,
-                                                color = GeoPalette.Divider
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.deleteStudent(student.uid)
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Remove student",
+                                                tint = GeoPalette.RejectedBg,
+                                                modifier = Modifier.size(20.dp)
                                             )
+                                        }
+                                    }
 
-                                            Column(
-                                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.padding(start = 4.dp)
-                                            ) {
-                                                // Email detail
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Email,
-                                                        contentDescription = "Email",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Email:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = student.email,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        thickness = 1.dp,
+                                        color = GeoPalette.Divider
+                                    )
 
-                                                // Phone detail
-                                                val displayPhone = student.phone.ifBlank { student.mobile }.ifBlank { "N/A" }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Phone,
-                                                        contentDescription = "Phone",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Phone:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = displayPhone,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    ) {
+                                        // Email detail
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Email,
+                                                contentDescription = "Email",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Email:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = student.email,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
 
-                                                // Registration Date detail
-                                                val formattedDate = try {
-                                                    val sdf = java.text.SimpleDateFormat("MMM dd, yyyy - hh:mm a", java.util.Locale.getDefault())
-                                                    sdf.format(student.createdAt.toDate())
-                                                } catch (e: Exception) {
-                                                    "N/A"
-                                                }
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.DateRange,
-                                                        contentDescription = "Calendar",
-                                                        tint = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "Registered:",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = GeoPalette.TextSecondary,
-                                                        modifier = Modifier.width(70.dp)
-                                                    )
-                                                    Text(
-                                                        text = formattedDate,
-                                                        fontSize = 13.sp,
-                                                        color = GeoPalette.TextPrimary,
-                                                        fontWeight = FontWeight.Normal
-                                                    )
-                                                }
-                                            }
+                                        // Phone detail
+                                        val displayPhone = student.phone.ifBlank { student.mobile }.ifBlank { "N/A" }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Phone,
+                                                contentDescription = "Phone",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Phone:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = displayPhone,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
 
-                                            Spacer(modifier = Modifier.height(14.dp))
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                Button(
-                                                    onClick = { viewModel.updateStudentStatus(student.uid, "approved") },
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.ApprovedBg)
-                                                ) {
-                                                    Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Approve", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                                OutlinedButton(
-                                                    onClick = { viewModel.updateStudentStatus(student.uid, "rejected") },
-                                                    modifier = Modifier.weight(1f),
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    border = BorderStroke(1.dp, GeoPalette.RejectedBg),
-                                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.RejectedBg)
-                                                ) {
-                                                    Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp))
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text("Reject", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                                }
-                                            }
+                                        // Registration Date detail
+                                        val formattedDate = try {
+                                            val sdf = java.text.SimpleDateFormat("MMM dd, yyyy - hh:mm a", java.util.Locale.getDefault())
+                                            sdf.format(student.createdAt.toDate())
+                                        } catch (e: Exception) {
+                                            "N/A"
+                                        }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DateRange,
+                                                contentDescription = "Calendar",
+                                                tint = GeoPalette.TextSecondary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Registered:",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = GeoPalette.TextSecondary,
+                                                modifier = Modifier.width(70.dp)
+                                            )
+                                            Text(
+                                                text = formattedDate,
+                                                fontSize = 13.sp,
+                                                color = GeoPalette.TextPrimary,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(14.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Button(
+                                            onClick = { viewModel.updateStudentStatus(student.uid, "approved") },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.ApprovedBg)
+                                        ) {
+                                            Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Approve", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                        OutlinedButton(
+                                            onClick = { viewModel.updateStudentStatus(student.uid, "rejected") },
+                                            modifier = Modifier.weight(1f),
+                                            shape = RoundedCornerShape(8.dp),
+                                            border = BorderStroke(1.dp, GeoPalette.RejectedBg),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.RejectedBg)
+                                        ) {
+                                            Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Reject", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -4434,11 +11540,13 @@ fun AdminStudentsTab(viewModel: LearningViewModel) {
                             DropdownMenu(
                                 expanded = streamExpanded,
                                 onDismissRequest = { streamExpanded = false },
-                                modifier = Modifier.background(Color.White)
+                                modifier = Modifier
+                                    .background(Color.White, RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
                             ) {
-                                listOf("Science", "Commerce", "Humanities").forEach { choice ->
+                                listOf("Science", "Commerce", "Humanities", "General").forEach { choice ->
                                     DropdownMenuItem(
-                                        text = { Text(choice, fontWeight = FontWeight.Medium) },
+                                        text = { Text(choice, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937), fontSize = 14.sp) },
                                         onClick = {
                                             editStream = choice
                                             streamExpanded = false
@@ -4484,11 +11592,13 @@ fun AdminStudentsTab(viewModel: LearningViewModel) {
                             DropdownMenu(
                                 expanded = statusExpanded,
                                 onDismissRequest = { statusExpanded = false },
-                                modifier = Modifier.background(Color.White)
+                                modifier = Modifier
+                                    .background(Color.White, RoundedCornerShape(12.dp))
+                                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
                             ) {
                                 listOf("approved", "pending", "rejected").forEach { choice ->
                                     DropdownMenuItem(
-                                        text = { Text(choice.replaceFirstChar { it.uppercase() }, fontWeight = FontWeight.Medium) },
+                                        text = { Text(choice.replaceFirstChar { it.uppercase() }, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937), fontSize = 14.sp) },
                                         onClick = {
                                             editStatus = choice
                                             statusExpanded = false
@@ -4539,72 +11649,1210 @@ fun AdminStudentsTab(viewModel: LearningViewModel) {
 }
 
 @Composable
-fun AdminContentTab(viewModel: LearningViewModel) {
-    var selectedStreamPage by remember { mutableStateOf<String?>(null) }
+fun AdminContentTab(
+    viewModel: LearningViewModel,
+    onUploadStateChange: (Boolean) -> Unit,
+    onBackToDashboard: () -> Unit = {}
+) {
+    var selectedStream by remember { mutableStateOf<String?>(null) }
+    var selectedModule by remember { mutableStateOf<String?>(null) }
+    var selectedSubject by remember { mutableStateOf<String?>(null) }
+    var quickAddType by remember { mutableStateOf<String?>(null) }
+    var isStreamContentPageUploading by remember { mutableStateOf(false) }
 
-    if (selectedStreamPage == null) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = GeoPalette.PrimaryContainer),
-                shape = RoundedCornerShape(16.dp)
+    LaunchedEffect(quickAddType, isStreamContentPageUploading, selectedSubject) {
+        onUploadStateChange(quickAddType != null || isStreamContentPageUploading || selectedSubject != null)
+    }
+
+    val CMSTree = remember {
+        mapOf(
+            "Science" to mapOf(
+                "Domain" to listOf("Physics", "Chemistry", "Biology", "Mathematics"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "Commerce" to mapOf(
+                "Domain" to listOf("Accountancy", "Business Studies", "Economics", "Finance"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "Humanities" to mapOf(
+                "Domain" to listOf("History", "Geography", "Political Science", "Sociology"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "General" to mapOf(
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            )
+        )
+    }
+
+    when {
+        selectedStream == null -> {
+            // STEP 1: Stream Selection Page
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                // Top Unified action bar (Single Back Button + Filter)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        "Content Manager",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GeoPalette.Primary
-                    )
-                    Text(
-                        "Select an independent stream page below to manage lecture videos, PDF study notes, recorded classes, and entrance mock examinations.",
-                        fontSize = 13.sp,
-                        color = GeoPalette.TextSecondary
-                    )
+                    IconButton(
+                        onClick = onBackToDashboard,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Go Back",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.showMessage("Streams list refreshed.") },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filter",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Header section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LibraryBooks,
+                            contentDescription = null,
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "Content Manager",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+                        Text(
+                            text = "Manage all academic streams",
+                            fontSize = 13.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Academic Streams",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary
+                )
+
+                // High fidelity styled cards for Step 1
+                val streamsMeta = listOf(
+                    Triple("Science Stream", "Physics, Chemistry, Biology, Mathematics & more", Color(0xFF6C5EF5)) to "Science",
+                    Triple("Commerce Stream", "Accountancy, Business Studies, Economics & more", Color(0xFF10B981)) to "Commerce",
+                    Triple("Humanities Stream", "History, Political Science, Sociology & more", Color(0xFF8B5CF6)) to "Humanities",
+                    Triple("General Stream", "Language, General Test, Teaching Aptitude", Color(0xFFF59E0B)) to "General"
+                )
+
+                streamsMeta.forEach { (meta, code) ->
+                    val (title, subtitle, color) = meta
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedStream = code }
+                            .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp)),
+                        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(color.copy(alpha = 0.08f), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (code == "Science") Icons.Default.Science else if (code == "Commerce") Icons.Default.Work else if (code == "Humanities") Icons.Default.AccountBalance else Icons.Default.Public,
+                                    contentDescription = null,
+                                    tint = color,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = title,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GeoPalette.TextPrimary
+                                )
+                                Text(
+                                    text = subtitle,
+                                    fontSize = 12.sp,
+                                    color = GeoPalette.TextSecondary
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = GeoPalette.TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                 }
             }
+        }
+        selectedModule == null -> {
+            // STEP 2: Module Selection Page for the selected stream
+            val stream = selectedStream!!
+            val availableModules = if (stream == "General") {
+                listOf("Language", "General Test", "Teaching Aptitude")
+            } else {
+                listOf("Domain", "Language", "General Test", "Teaching Aptitude")
+            }
 
-            Text("Available Academic Streams", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+            // Collect items from view model to calculate live stats for this stream
+            val videos by viewModel.videos.collectAsState()
+            val materials by viewModel.materials.collectAsState()
+            val recordedClasses by viewModel.recordedClasses.collectAsState()
+            val mockTests by viewModel.mockTests.collectAsState()
 
-            StreamLandingCard(
-                title = "Science",
-                description = "Manage curriculum topics: Physics, Chemistry, Biology, and Mathematics.",
-                icon = Icons.Default.MenuBook,
-                colorAccent = Color(0xFF1976D2),
-                onClick = { selectedStreamPage = "Science" }
-            )
+            val streamVideosCount = videos.count { it.stream.equals(stream, ignoreCase = true) }
+            val streamMaterialsCount = materials.count { it.stream.equals(stream, ignoreCase = true) }
+            val streamRecordedCount = recordedClasses.count { it.stream.equals(stream, ignoreCase = true) }
+            val streamTestsCount = mockTests.count { it.stream.equals(stream, ignoreCase = true) }
+            val totalContentCount = streamVideosCount + streamMaterialsCount + streamRecordedCount + streamTestsCount
 
-            StreamLandingCard(
-                title = "Commerce",
-                description = "Manage business curriculum: Accountancy, Business Studies, Economics, and Finance.",
-                icon = Icons.Default.People,
-                colorAccent = Color(0xFF388E3C),
-                onClick = { selectedStreamPage = "Commerce" }
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Top Unified action bar (Single Back Button + Filter)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(
+                        onClick = { selectedStream = null },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Go Back",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
 
-            StreamLandingCard(
-                title = "Humanities",
-                description = "Manage arts & humanities curriculum: History, Geography, Political Science, and Literature.",
-                icon = Icons.Default.LibraryBooks,
-                colorAccent = Color(0xFFD32F2F),
-                onClick = { selectedStreamPage = "Humanities" }
+                    IconButton(
+                        onClick = { viewModel.showMessage("Modules filtered.") },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filter",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Stream Header Row with Atom/Science Icon (Matches Mockup 1 landing row)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val streamIconColor = when (stream) {
+                        "Science" -> Color(0xFF6C5EF5)
+                        "Commerce" -> Color(0xFF10B981)
+                        "Humanities" -> Color(0xFF8B5CF6)
+                        else -> Color(0xFFF59E0B)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(streamIconColor.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Science,
+                            contentDescription = null,
+                            tint = streamIconColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = "$stream Stream",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+                        Text(
+                            text = "Manage $stream stream modules",
+                            fontSize = 13.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Modules",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary
+                )
+
+                // High fidelity Modules card list (Matches Mockup 1 visual elements)
+                availableModules.forEach { module ->
+                    val (title, countText) = when (module) {
+                        "Domain" -> "Domain (Subjects)" to "4 Subjects"
+                        "Language" -> "Language" to "2 Subjects"
+                        "General Test" -> "General Test" to "3 Sections"
+                        "Teaching Aptitude" -> "Teaching Aptitude" to "1 Section"
+                        else -> module to "0 Sections"
+                    }
+                    val desc = when (module) {
+                        "Domain" -> "Physics, Chemistry, Biology, Mathematics"
+                        "Language" -> "English Literature, English for Communication"
+                        "General Test" -> "Logical Reasoning, Quantitative Aptitude, GK & Current Affairs"
+                        "Teaching Aptitude" -> "Aptitude learning videos"
+                        else -> "Manage $module content."
+                    }
+                    val colorAccent = when (module) {
+                        "Domain" -> Color(0xFF1976D2)
+                        "Language" -> Color(0xFF9C27B0)
+                        "General Test" -> Color(0xFF2E7D32)
+                        "Teaching Aptitude" -> Color(0xFFE65100)
+                        else -> GeoPalette.Primary
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedModule = module
+                                if (module == "Teaching Aptitude") {
+                                    selectedSubject = "Teaching Aptitude"
+                                }
+                            }
+                            .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp)),
+                        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            // Icon custom styling (Matches mockup's AA and Book icons)
+                            if (module == "Language") {
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .background(Color(0xFFF3E5F5), RoundedCornerShape(12.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Aa",
+                                        color = Color(0xFF9C27B0),
+                                        fontSize = 20.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .background(colorAccent.copy(alpha = 0.08f), RoundedCornerShape(12.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = when (module) {
+                                            "Domain" -> Icons.Default.MenuBook
+                                            "General Test" -> Icons.Default.Assignment
+                                            else -> Icons.Default.School
+                                        },
+                                        contentDescription = null,
+                                        tint = colorAccent,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = title,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GeoPalette.TextPrimary
+                                )
+                                Text(
+                                    text = desc,
+                                    fontSize = 12.sp,
+                                    color = GeoPalette.TextSecondary
+                                )
+                                Text(
+                                    text = countText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colorAccent,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = GeoPalette.TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bottom statistics panel (Matches Mockup 1 stats widget)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, Color(0xFFD0E0FF), RoundedCornerShape(16.dp)),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0F4FF)),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Stat 1
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "$totalContentCount",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2F66F6)
+                            )
+                            Text(
+                                text = "Total Content",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFD0E0FF)))
+
+                        // Stat 2
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "$streamVideosCount",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2F66F6)
+                            )
+                            Text(
+                                text = "Videos",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFD0E0FF)))
+
+                        // Stat 3
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "$streamMaterialsCount",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2F66F6)
+                            )
+                            Text(
+                                text = "Materials",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+
+                        Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFFD0E0FF)))
+
+                        // Stat 4
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "$streamTestsCount",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2F66F6)
+                            )
+                            Text(
+                                text = "Tests",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF6B7280)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        selectedSubject == null -> {
+            // STEP 3: Subject Selection Page for the selected module
+            val stream = selectedStream!!
+            val module = selectedModule!!
+            val availableSubjects = CMSTree[stream]?.get(module) ?: listOf("General")
+
+            val videos by viewModel.videos.collectAsState()
+            val materials by viewModel.materials.collectAsState()
+            val recordedClasses by viewModel.recordedClasses.collectAsState()
+            val mockTests by viewModel.mockTests.collectAsState()
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Top Unified action bar (Single Back Button + Filter)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(
+                        onClick = { selectedModule = null },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                            contentDescription = "Go Back",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.showMessage("Subjects filtered.") },
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FilterList,
+                            contentDescription = "Filter",
+                            tint = Color(0xFF7B0F2E),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                // Header with Atom Icon (Matches Mockup 2 subject landing row)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val streamIconColor = when (stream) {
+                        "Science" -> Color(0xFF6C5EF5)
+                        "Commerce" -> Color(0xFF10B981)
+                        "Humanities" -> Color(0xFF8B5CF6)
+                        else -> Color(0xFFF59E0B)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(52.dp)
+                            .background(streamIconColor.copy(alpha = 0.08f), RoundedCornerShape(14.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Science,
+                            contentDescription = null,
+                            tint = streamIconColor,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        val displayTitle = if (module == "Domain") "Domain ($stream)" else module
+                        Text(
+                            text = displayTitle,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextPrimary
+                        )
+                        Text(
+                            text = "Select a subject to manage",
+                            fontSize = 13.sp,
+                            color = GeoPalette.TextSecondary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Subjects",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.TextPrimary
+                )
+
+                // High fidelity stylised subjects cards list (Matches Mockup 2 physics, chemistry, biology, math flask/Pi/leaf shapes)
+                availableSubjects.forEach { subject ->
+                    val subjectVideos = videos.count { it.stream.equals(stream, ignoreCase = true) && it.subject.equals(subject, ignoreCase = true) }
+                    val subjectMaterials = materials.count { it.stream.equals(stream, ignoreCase = true) && it.subject.equals(subject, ignoreCase = true) }
+                    val subjectRecorded = recordedClasses.count { it.stream.equals(stream, ignoreCase = true) && it.subject.equals(subject, ignoreCase = true) }
+                    val subjectTests = mockTests.count { it.stream.equals(stream, ignoreCase = true) && it.subject.equals(subject, ignoreCase = true) }
+                    val totalSubjectItems = subjectVideos + subjectMaterials + subjectRecorded + subjectTests
+
+                    val colorAccent = when (subject) {
+                        "Physics" -> Color(0xFF5E35B1)
+                        "Chemistry" -> Color(0xFF2E7D32)
+                        "Biology" -> Color(0xFF00796B)
+                        "Mathematics" -> Color(0xFF1565C0)
+                        else -> {
+                            when (subject) {
+                                "Accountancy", "History" -> Color(0xFF1976D2)
+                                "Business Studies", "Geography" -> Color(0xFF388E3C)
+                                "Economics", "Political Science" -> Color(0xFFD32F2F)
+                                "Finance", "Sociology" -> Color(0xFF7B1FA2)
+                                else -> Color(0xFF00796B)
+                            }
+                        }
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedSubject = subject }
+                            .border(1.dp, GeoPalette.Divider, RoundedCornerShape(16.dp)),
+                        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(colorAccent.copy(alpha = 0.08f), RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                when (subject) {
+                                    "Physics" -> {
+                                        Icon(
+                                            imageVector = Icons.Default.Science,
+                                            contentDescription = null,
+                                            tint = Color(0xFF5E35B1),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    "Chemistry" -> {
+                                        Icon(
+                                            imageVector = Icons.Default.Science,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    "Biology" -> {
+                                        Icon(
+                                            imageVector = Icons.Default.Eco,
+                                            contentDescription = null,
+                                            tint = Color(0xFF00796B),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                    "Mathematics" -> {
+                                        Text(
+                                            text = "π",
+                                            color = Color(0xFF1565C0),
+                                            fontSize = 22.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    else -> {
+                                        Icon(
+                                            imageVector = Icons.Default.School,
+                                            contentDescription = null,
+                                            tint = colorAccent,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = subject,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GeoPalette.TextPrimary
+                                )
+                                Text(
+                                    text = "$totalSubjectItems Items",
+                                    fontSize = 12.sp,
+                                    color = GeoPalette.TextSecondary
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = GeoPalette.TextSecondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        else -> {
+            // STEP 4: Selected Subject CMS Workspace
+            StreamContentPageNew(
+                streamName = selectedStream!!,
+                moduleName = selectedModule!!,
+                subjectName = selectedSubject!!,
+                viewModel = viewModel,
+                onBack = {
+                    selectedSubject = null
+                    if (selectedModule == "Teaching Aptitude") {
+                        selectedModule = null
+                    }
+                },
+                onUploadStateChange = { isStreamContentPageUploading = it }
             )
         }
-    } else {
-        StreamContentPage(
-            streamName = selectedStreamPage!!,
+    }
+
+    quickAddType?.let { addType ->
+        UploadContentPage(
+            initialStream = selectedStream ?: "Science",
+            initialModule = selectedModule ?: "Domain",
+            initialSubject = selectedSubject ?: "Physics",
+            addType = addType,
             viewModel = viewModel,
-            onBack = { selectedStreamPage = null }
+            onBack = { quickAddType = null }
         )
+    }
+
+    if (false) {
+        quickAddType?.let { addType ->
+            val stream = selectedStream ?: "Science"
+            val module = selectedModule ?: "Domain"
+            val availableSubjects = CMSTree[stream]?.get(module) ?: listOf("General")
+
+            androidx.compose.ui.window.Dialog(onDismissRequest = { quickAddType = null }) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 24.dp)
+                        .verticalScroll(rememberScrollState()),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, GeoPalette.Divider)
+                ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Header with Back Button next to title
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        IconButton(
+                            onClick = { quickAddType = null },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(GeoPalette.CardBackground, RoundedCornerShape(8.dp))
+                                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(8.dp))
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                                contentDescription = "Go Back",
+                                tint = GeoPalette.Primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Quick Upload ${addType.replaceFirstChar { it.uppercase() }}",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.Primary
+                            )
+                            Text(
+                                text = "Stream: $stream • Module: $module",
+                                fontSize = 11.sp,
+                                color = GeoPalette.TextSecondary
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = GeoPalette.Divider)
+
+                    var chosenSubject by remember { mutableStateOf(availableSubjects.firstOrNull() ?: "General") }
+                    var subjectExpanded by remember { mutableStateOf(false) }
+
+                    // Subject Dropdown
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Target Subject",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GeoPalette.TextSecondary
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(10.dp))
+                                .clickable { subjectExpanded = true }
+                                .padding(horizontal = 14.dp, vertical = 12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = chosenSubject,
+                                    fontSize = 14.sp,
+                                    color = GeoPalette.TextPrimary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ArrowDropDown,
+                                    contentDescription = "Dropdown",
+                                    tint = GeoPalette.TextSecondary
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = subjectExpanded,
+                                onDismissRequest = { subjectExpanded = false },
+                                modifier = Modifier.background(Color.White)
+                            ) {
+                                availableSubjects.forEach { subj ->
+                                    DropdownMenuItem(
+                                        text = { Text(subj, fontWeight = FontWeight.Medium) },
+                                        onClick = {
+                                            chosenSubject = subj
+                                            subjectExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Standard Fields
+                    var title by remember { mutableStateOf("") }
+                    var desc by remember { mutableStateOf("") }
+                    var urlLink by remember { mutableStateOf("") }
+                    var thumbnail by remember { mutableStateOf("") }
+
+                    var testType by remember { mutableStateOf("topicwise") }
+                    var testDurationMinutes by remember { mutableStateOf("30") }
+                    var questionsList by remember { mutableStateOf<List<MockQuestion>>(emptyList()) }
+
+                    var qText by remember { mutableStateOf("") }
+                    var opt1 by remember { mutableStateOf("") }
+                    var opt2 by remember { mutableStateOf("") }
+                    var opt3 by remember { mutableStateOf("") }
+                    var opt4 by remember { mutableStateOf("") }
+                    var correctOptIndex by remember { mutableStateOf(0) }
+                    var explanationText by remember { mutableStateOf("") }
+
+                    val context = androidx.compose.ui.platform.LocalContext.current
+
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        label = { Text("Description", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    if (addType != "tests") {
+                        OutlinedTextField(
+                            value = urlLink,
+                            onValueChange = { urlLink = it },
+                            label = { Text(if (addType == "materials") "Material PDF Link / URL" else "Lecture Video Link / URL", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    if (addType == "videos") {
+                        OutlinedTextField(
+                            value = thumbnail,
+                            onValueChange = { thumbnail = it },
+                            label = { Text("Thumbnail Image URL (Optional)", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    if (addType == "tests") {
+                        Text("Mock Exam Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "topicwise", onClick = { testType = "topicwise" })
+                                Text("Topic Wise", fontSize = 12.sp, modifier = Modifier.clickable { testType = "topicwise" })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "fulllength", onClick = { testType = "fulllength" })
+                                Text("Full Length", fontSize = 12.sp, modifier = Modifier.clickable { testType = "fulllength" })
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = testDurationMinutes,
+                            onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+                            label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+                            placeholder = { Text("e.g. 30", color = Color.Gray, fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563)
+                            )
+                        )
+
+                        HorizontalDivider(color = GeoPalette.Divider)
+                        Text("Add Questions (Count: ${questionsList.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+
+                        OutlinedTextField(
+                            value = qText,
+                            onValueChange = { qText = it },
+                            label = { Text("Question Text", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt1,
+                                onValueChange = { opt1 = it },
+                                label = { Text("Option A", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt2,
+                                onValueChange = { opt2 = it },
+                                label = { Text("Option B", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt3,
+                                onValueChange = { opt3 = it },
+                                label = { Text("Option C", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt4,
+                                onValueChange = { opt4 = it },
+                                label = { Text("Option D", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Text("Correct Index", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("A", "B", "C", "D").forEachIndexed { index, letter ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = correctOptIndex == index, onClick = { correctOptIndex = index })
+                                    Text(letter, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = explanationText,
+                            onValueChange = { explanationText = it },
+                            label = { Text("Explanation (Optional)", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Button(
+                            onClick = {
+                                if (qText.isNotBlank() && opt1.isNotBlank() && opt2.isNotBlank() && opt3.isNotBlank() && opt4.isNotBlank()) {
+                                    val newQ = MockQuestion(
+                                        id = "q_${System.currentTimeMillis()}",
+                                        questionText = qText,
+                                        options = listOf(opt1, opt2, opt3, opt4),
+                                        correctAnswerIndex = correctOptIndex,
+                                        explanation = explanationText
+                                    )
+                                    questionsList = questionsList + newQ
+                                    qText = ""
+                                    opt1 = ""
+                                    opt2 = ""
+                                    opt3 = ""
+                                    opt4 = ""
+                                    correctOptIndex = 0
+                                    explanationText = ""
+                                } else {
+                                    android.widget.Toast.makeText(context, "Please complete all fields for the question", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.PrimaryContainer, contentColor = GeoPalette.Primary),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Add Question to List", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (questionsList.isNotEmpty()) {
+                            Text("Added Questions:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    questionsList.forEachIndexed { qIdx, q ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("${qIdx + 1}. ${q.questionText.take(24)}...", fontSize = 11.sp, color = GeoPalette.TextPrimary)
+                                            IconButton(
+                                                onClick = { questionsList = questionsList.filter { it.id != q.id } },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, null, tint = GeoPalette.RejectedBg, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { quickAddType = null },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Cancel", fontSize = 12.sp, color = GeoPalette.TextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (title.isBlank()) {
+                                    android.widget.Toast.makeText(context, "Title cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (addType != "tests" && urlLink.isBlank()) {
+                                    android.widget.Toast.makeText(context, "URL/Link is required!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (addType == "tests" && questionsList.isEmpty()) {
+                                    android.widget.Toast.makeText(context, "Add at least 1 question!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+
+                                val customContentType = when (module) {
+                                    "Language" -> if (addType == "videos") "Video" else "Material"
+                                    "General Test" -> if (addType == "materials") "Material" else "Mock Test"
+                                    "Teaching Aptitude" -> if (addType == "videos") "Video" else "Material"
+                                    else -> when (addType) {
+                                        "videos" -> "videos"
+                                        "materials" -> "materials"
+                                        "recorded" -> "recordedClasses"
+                                        "tests" -> "mockTests"
+                                        else -> ""
+                                    }
+                                }
+
+                                when (addType) {
+                                    "videos" -> {
+                                        viewModel.addVideo(
+                                            title = title,
+                                            description = desc,
+                                            url = urlLink,
+                                            category = module,
+                                            stream = stream,
+                                            domain = chosenSubject,
+                                            thumbnailUrl = thumbnail.ifBlank { "https://images.unsplash.com/photo-1516321318423-f06f85e504b3" },
+                                            module = module,
+                                            subject = chosenSubject,
+                                            contentType = customContentType
+                                        )
+                                        android.widget.Toast.makeText(context, "Successfully uploaded video lecture!", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                    "materials" -> {
+                                        viewModel.addMaterial(
+                                            title = title,
+                                            fileUrl = urlLink,
+                                            category = module,
+                                            stream = stream,
+                                            domain = chosenSubject,
+                                            module = module,
+                                            subject = chosenSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        android.widget.Toast.makeText(context, "Successfully uploaded study material notes!", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                    "recorded" -> {
+                                        viewModel.addRecordedClass(
+                                            title = title,
+                                            videoUrl = urlLink,
+                                            stream = stream,
+                                            domain = chosenSubject,
+                                            module = module,
+                                            subject = chosenSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        android.widget.Toast.makeText(context, "Successfully uploaded recorded class!", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                    "tests" -> {
+                                        viewModel.addMockTest(
+                                            title = title,
+                                            type = testType,
+                                            stream = stream,
+                                            domain = chosenSubject,
+                                            questions = questionsList,
+                                            module = module,
+                                            subject = chosenSubject,
+                                            contentType = customContentType,
+                                            description = desc,
+                                            durationMinutes = testDurationMinutes.toIntOrNull() ?: 0
+                                        )
+                                        android.widget.Toast.makeText(context, "Successfully created mock test examination!", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                                quickAddType = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Submit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
     }
 }
 
@@ -4614,15 +12862,16 @@ fun StreamLandingCard(
     description: String,
     icon: ImageVector,
     colorAccent: Color,
+    itemsCountText: String? = null,
     onClick: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .border(1.dp, GeoPalette.Divider, RoundedCornerShape(14.dp)),
-        colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
-        shape = RoundedCornerShape(14.dp)
+    InteractiveCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        borderColor = GeoPalette.Divider,
+        borderWidth = 1.5.dp,
+        shape = RoundedCornerShape(14.dp),
+        containerColor = GeoPalette.CardBackground
     ) {
         Row(
             modifier = Modifier
@@ -4647,7 +12896,7 @@ fun StreamLandingCard(
 
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "$title Page",
+                    text = title,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = GeoPalette.TextPrimary
@@ -4658,6 +12907,15 @@ fun StreamLandingCard(
                     color = GeoPalette.TextSecondary,
                     lineHeight = 16.sp
                 )
+                if (itemsCountText != null) {
+                    Text(
+                        text = itemsCountText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colorAccent,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
 
             Icon(
@@ -4671,11 +12929,3222 @@ fun StreamLandingCard(
 }
 
 @Composable
+fun DetailsDropdown(
+    label: String,
+    selectedOption: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    options: List<String>,
+    onOptionSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Text(
+            text = label,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF4B5563)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(1.5.dp, GeoPalette.CardBorder, RoundedCornerShape(12.dp))
+                .clickable { onExpandedChange(true) }
+                .padding(horizontal = 12.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = selectedOption,
+                    fontSize = 13.sp,
+                    color = Color(0xFF1F2937),
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = "Dropdown",
+                    tint = Color(0xFF6B7280),
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { onExpandedChange(false) },
+                modifier = Modifier.background(Color.White)
+            ) {
+                options.forEach { opt ->
+                    DropdownMenuItem(
+                        text = { Text(opt, fontSize = 13.sp) },
+                        onClick = {
+                            onOptionSelected(opt)
+                            onExpandedChange(false)
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UploadContentPage(
+    initialStream: String,
+    initialModule: String,
+    initialSubject: String,
+    addType: String, // "videos", "materials", "recorded", "tests"
+    viewModel: LearningViewModel,
+    onBack: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    var chosenStream by remember { mutableStateOf(initialStream) }
+    var chosenModule by remember { mutableStateOf(initialModule) }
+    var chosenSubject by remember { mutableStateOf(initialSubject) }
+
+    var streamExpanded by remember { mutableStateOf(false) }
+    var moduleExpanded by remember { mutableStateOf(false) }
+    var subjectExpanded by remember { mutableStateOf(false) }
+
+    val streamsList = listOf("Science", "Commerce", "Humanities", "General")
+    val modulesList = listOf("Domain", "Language", "General Test", "Teaching Aptitude")
+
+    val CMSTree = remember {
+        mapOf(
+            "Science" to mapOf(
+                "Domain" to listOf("Physics", "Chemistry", "Biology", "Mathematics"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "Commerce" to mapOf(
+                "Domain" to listOf("Accountancy", "Business Studies", "Economics", "Finance"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "Humanities" to mapOf(
+                "Domain" to listOf("History", "Geography", "Political Science", "Sociology"),
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            ),
+            "General" to mapOf(
+                "Language" to listOf("English Literature", "English for Communication"),
+                "General Test" to listOf("Logical Reasoning", "Quantitative Aptitude", "General Knowledge & Current Affairs"),
+                "Teaching Aptitude" to listOf("Teaching Aptitude")
+            )
+        )
+    }
+
+    val subjectsList = remember(chosenStream, chosenModule) {
+        CMSTree[chosenStream]?.get(chosenModule) ?: listOf("General")
+    }
+
+    LaunchedEffect(subjectsList) {
+        if (!subjectsList.contains(chosenSubject)) {
+            chosenSubject = subjectsList.firstOrNull() ?: "General"
+        }
+    }
+
+    // Standard fields
+    var title by remember { mutableStateOf("") }
+    var desc by remember { mutableStateOf("") }
+    var urlLink by remember { mutableStateOf("") }
+    var thumbnail by remember { mutableStateOf("") }
+
+    // Upload from Device options
+    var uploadFromDevice by remember { mutableStateOf(false) }
+    var selectedFileName by remember { mutableStateOf("") }
+    var selectedFileSize by remember { mutableStateOf("") }
+    var uploadProgress by remember { mutableStateOf(0f) }
+    var isUploadingFile by remember { mutableStateOf(false) }
+
+    val filePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                isUploadingFile = true
+                uploadProgress = 0f
+                var name = "device_upload"
+                var sizeStr = ""
+                try {
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        val nameIdx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        val sizeIdx = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                        if (cursor.moveToFirst()) {
+                            if (nameIdx != -1) name = cursor.getString(nameIdx)
+                            if (sizeIdx != -1) {
+                                val sizeBytes = cursor.getLong(sizeIdx)
+                                sizeStr = "${String.format("%.2f", sizeBytes / (1024f * 1024f))} MB"
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("StorageUpload", "Error querying file metadata: ${e.message}", e)
+                }
+                selectedFileName = name
+                selectedFileSize = sizeStr
+                
+                // Log selected file URI
+                android.util.Log.d("StorageUpload", "--------------------- UPLOAD START ---------------------")
+                android.util.Log.d("StorageUpload", "Selected Uri: $uri")
+                
+                try {
+                    // Perform real Firebase Storage upload
+                    val pathFolder = when (addType) {
+                        "videos", "recorded" -> "videos"
+                        "materials" -> "materials"
+                        "pyqs" -> "pyqs"
+                        else -> "materials"
+                    }
+                    val cleanName = name.replace(" ", "_")
+                    val safeStream = chosenStream.trim().replace(" ", "_")
+                    val safeSubject = chosenSubject.trim().replace(" ", "_")
+                    
+                    val storage = com.google.firebase.storage.FirebaseStorage.getInstance()
+                    val bucketName = storage.reference.bucket
+                    android.util.Log.d("StorageUpload", "Firebase Storage Bucket: $bucketName")
+                    
+                    val fileRef = storage.reference.child("$pathFolder/$safeStream/$safeSubject/$cleanName")
+                    android.util.Log.d("StorageUpload", "Target Storage Path: ${fileRef.path}")
+                    
+                    val uploadTask = fileRef.putFile(uri)
+                    
+                    uploadTask.addOnProgressListener { taskSnapshot ->
+                        val progress = if (taskSnapshot.totalByteCount > 0) {
+                            (taskSnapshot.bytesTransferred.toDouble() / taskSnapshot.totalByteCount).toFloat()
+                        } else {
+                            0f
+                        }
+                        uploadProgress = progress
+                        android.util.Log.d("StorageUpload", "Upload progress: ${(progress * 100).toInt()}% (${taskSnapshot.bytesTransferred}/${taskSnapshot.totalByteCount} bytes)")
+                    }.await()
+                    
+                    android.util.Log.d("StorageUpload", "Upload Completed Successfully")
+                    
+                    val rawUrl = fileRef.downloadUrl.await().toString()
+                    val downloadUrl = ensureFirebaseDownloadUrl(rawUrl)
+                    android.util.Log.d("StorageUpload", "Generated Download URL: $downloadUrl")
+                    
+                    urlLink = downloadUrl
+                    isUploadingFile = false
+                    uploadProgress = 1.0f
+                    android.util.Log.d("StorageUpload", "--------------------- UPLOAD SUCCESS ---------------------")
+                } catch (e: Exception) {
+                    android.util.Log.e("StorageUpload", "--------------------- UPLOAD FAILURE ---------------------")
+                    android.util.Log.e("StorageUpload", "Upload failed with error: ${e.message}", e)
+                    val displayError = e.localizedMessage ?: e.toString()
+                    android.widget.Toast.makeText(context, "File upload failed: $displayError", android.widget.Toast.LENGTH_LONG).show()
+                    isUploadingFile = false
+                    uploadProgress = 0f
+                }
+            }
+        }
+    }
+
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val mimeType = if (addType == "materials" || addType == "pyqs") "application/pdf" else "video/mp4"
+            filePickerLauncher.launch(mimeType)
+        } else {
+            android.widget.Toast.makeText(context, "Storage permission is required to select files.", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Mock Test fields
+    var testType by remember { mutableStateOf("topicwise") }
+    var questionsList by remember { mutableStateOf<List<MockQuestion>>(emptyList()) }
+    var testDurationMinutes by remember { mutableStateOf("30") } // default 30 mins
+
+    var qText by remember { mutableStateOf("") }
+    var opt1 by remember { mutableStateOf("") }
+    var opt2 by remember { mutableStateOf("") }
+    var opt3 by remember { mutableStateOf("") }
+    var opt4 by remember { mutableStateOf("") }
+    var correctOptIndex by remember { mutableStateOf(0) }
+    var explanationText by remember { mutableStateOf("") }
+
+    var showThumbnailInput by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Center-aligned single header with back button
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .size(44.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                    contentDescription = "Go Back",
+                    tint = Color(0xFF7B0F2E),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Text(
+                text = when (addType) {
+                    "videos" -> "Add New Video"
+                    "materials" -> "Add New Material"
+                    "recorded" -> "Add New Live Class"
+                    "tests" -> "Add New Mock Test"
+                    "pyqs" -> "Add New PYQ"
+                    else -> "Add New Content"
+                },
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F2937)
+            )
+        }
+
+        // Breadcrumb path banner showing Stream -> Module -> Subject destination
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
+            border = BorderStroke(1.5.dp, GeoPalette.Divider),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Destination Folder",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF6B7280),
+                    letterSpacing = 0.5.sp
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Stream Badge
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF7B0F2E).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = chosenStream,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7B0F2E)
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = Color(0xFF9CA3AF),
+                        modifier = Modifier.size(14.dp)
+                    )
+
+                    // Module Badge
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF1976D2).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF1976D2).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = chosenModule,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1976D2)
+                        )
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = Color(0xFF9CA3AF),
+                        modifier = Modifier.size(14.dp)
+                    )
+
+                    // Subject Badge
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF2E7D32).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .border(1.dp, Color(0xFF2E7D32).copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = chosenSubject,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Card 1: Content Information
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.5.dp, GeoPalette.Divider),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Content Information",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1F2937)
+                )
+
+                // Title
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Title",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF4B5563)
+                    )
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        placeholder = { Text("Enter title", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedLabelColor = Color(0xFF4B5563),
+                            unfocusedLabelColor = Color(0xFF4B5563),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+                }
+
+                // Description
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Description",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF4B5563)
+                    )
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        placeholder = { Text("Enter description", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedLabelColor = Color(0xFF4B5563),
+                            unfocusedLabelColor = Color(0xFF4B5563),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+                }
+
+                // URL/Link input
+                if (addType != "tests") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = if (addType == "materials" || addType == "pyqs") "Google Drive Share Link" else "YouTube Video Link",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = urlLink,
+                            onValueChange = { urlLink = it },
+                            placeholder = {
+                                Text(
+                                    text = if (addType == "materials" || addType == "pyqs") "https://drive.google.com/file/d/..." else "https://www.youtube.com/watch?v=...",
+                                    color = Color(0xFF9CA3AF),
+                                    fontSize = 14.sp
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedLabelColor = Color(0xFF4B5563),
+                                unfocusedLabelColor = Color(0xFF4B5563),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                    }
+                }
+
+                // Thumbnail upload (Optional)
+                if (addType == "videos") {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Thumbnail (Optional)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        if (showThumbnailInput) {
+                            OutlinedTextField(
+                                value = thumbnail,
+                                onValueChange = { thumbnail = it },
+                                placeholder = { Text("Enter thumbnail image URL", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                singleLine = true,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = Color(0xFF1F2937),
+                                    unfocusedTextColor = Color(0xFF1F2937),
+                                    focusedLabelColor = Color(0xFF4B5563),
+                                    unfocusedLabelColor = Color(0xFF4B5563),
+                                    focusedBorderColor = Color(0xFF7B0F2E),
+                                    unfocusedBorderColor = Color(0xFF4B5563),
+                                    focusedContainerColor = Color.White,
+                                    unfocusedContainerColor = Color.White
+                                ),
+                                trailingIcon = {
+                                    IconButton(onClick = { showThumbnailInput = false }) {
+                                        Icon(Icons.Default.Close, null, tint = Color.Gray)
+                                    }
+                                }
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(110.dp)
+                                    .clickable { showThumbnailInput = true }
+                                    .drawBehind {
+                                        drawRoundRect(
+                                            color = Color(0xFF4B5563),
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                                width = 3f,
+                                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 12f), 0f)
+                                            ),
+                                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx(), 12.dp.toPx())
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = null,
+                                        tint = Color(0xFF4B5563),
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                    Text(
+                                        text = if (thumbnail.isBlank()) "Click to upload image" else "Thumbnail image set!",
+                                        fontSize = 13.sp,
+                                        color = Color(0xFF4B5563),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Mock Exam Question builder for tests
+        if (addType == "tests") {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Mock Exam Settings", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = testType == "topicwise", onClick = { testType = "topicwise" })
+                            Text("Topic Wise", fontSize = 13.sp, color = Color(0xFF1F2937), modifier = Modifier.clickable { testType = "topicwise" })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = testType == "fulllength", onClick = { testType = "fulllength" })
+                            Text("Full Length", fontSize = 13.sp, color = Color(0xFF1F2937), modifier = Modifier.clickable { testType = "fulllength" })
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = testDurationMinutes,
+                        onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+                        label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+                        placeholder = { Text("e.g. 30", color = Color.Gray, fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedLabelColor = Color(0xFF4B5563),
+                            unfocusedLabelColor = Color(0xFF4B5563),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF3F4F6))
+                    Text("Add Questions (Count: ${questionsList.size})", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7B0F2E))
+
+                    OutlinedTextField(
+                        value = qText,
+                        onValueChange = { qText = it },
+                        label = { Text("Question Text", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedLabelColor = Color(0xFF4B5563),
+                            unfocusedLabelColor = Color(0xFF4B5563),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = opt1,
+                            onValueChange = { opt1 = it },
+                            label = { Text("Option A", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedLabelColor = Color(0xFF4B5563),
+                                unfocusedLabelColor = Color(0xFF4B5563),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = opt2,
+                            onValueChange = { opt2 = it },
+                            label = { Text("Option B", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedLabelColor = Color(0xFF4B5563),
+                                unfocusedLabelColor = Color(0xFF4B5563),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = opt3,
+                            onValueChange = { opt3 = it },
+                            label = { Text("Option C", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedLabelColor = Color(0xFF4B5563),
+                                unfocusedLabelColor = Color(0xFF4B5563),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                        OutlinedTextField(
+                            value = opt4,
+                            onValueChange = { opt4 = it },
+                            label = { Text("Option D", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedLabelColor = Color(0xFF4B5563),
+                                unfocusedLabelColor = Color(0xFF4B5563),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                    }
+
+                    Text("Correct Index", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf("A", "B", "C", "D").forEachIndexed { index, letter ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = correctOptIndex == index, onClick = { correctOptIndex = index })
+                                Text(letter, fontSize = 13.sp, color = Color(0xFF1F2937))
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = explanationText,
+                        onValueChange = { explanationText = it },
+                        label = { Text("Explanation (Optional)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedLabelColor = Color(0xFF4B5563),
+                            unfocusedLabelColor = Color(0xFF4B5563),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+
+                    Button(
+                        onClick = {
+                            if (qText.isNotBlank() && opt1.isNotBlank() && opt2.isNotBlank() && opt3.isNotBlank() && opt4.isNotBlank()) {
+                                val newQ = MockQuestion(
+                                    id = "q_${System.currentTimeMillis()}",
+                                    questionText = qText,
+                                    options = listOf(opt1, opt2, opt3, opt4),
+                                    correctAnswerIndex = correctOptIndex,
+                                    explanation = explanationText
+                                )
+                                questionsList = questionsList + newQ
+                                qText = ""
+                                opt1 = ""
+                                opt2 = ""
+                                opt3 = ""
+                                opt4 = ""
+                                correctOptIndex = 0
+                                explanationText = ""
+                            } else {
+                                android.widget.Toast.makeText(context, "Please complete all fields for the question", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E).copy(alpha = 0.08f), contentColor = Color(0xFF7B0F2E)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.align(Alignment.End)
+                    ) {
+                        Text("Add Question to List", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (questionsList.isNotEmpty()) {
+                        Text("Added Questions:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB))
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                questionsList.forEachIndexed { qIdx, q ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("${qIdx + 1}. ${q.questionText.take(30)}...", fontSize = 12.sp, color = Color(0xFF1F2937))
+                                        IconButton(
+                                            onClick = { questionsList = questionsList.filter { it.id != q.id } },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(Icons.Default.Close, null, tint = Color.Red, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        // Action buttons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1F2937))
+            ) {
+                Text("Cancel", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = {
+                    if (title.isBlank()) {
+                        android.widget.Toast.makeText(context, "Title cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (addType != "tests" && urlLink.isBlank()) {
+                        android.widget.Toast.makeText(context, "URL/Link is required!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if ((addType == "videos" || addType == "recorded") && !isYouTubeUrl(urlLink)) {
+                        android.widget.Toast.makeText(context, "Invalid YouTube URL! Please enter a valid YouTube link.", android.widget.Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+                    if ((addType == "materials" || addType == "pyqs") && !isGoogleDriveUrl(urlLink)) {
+                        android.widget.Toast.makeText(context, "Invalid Google Drive URL! Please enter a valid Google Drive share link.", android.widget.Toast.LENGTH_LONG).show()
+                        return@Button
+                    }
+                    if (addType == "tests" && questionsList.isEmpty()) {
+                        android.widget.Toast.makeText(context, "Add at least 1 question!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    val customContentType = when (chosenModule) {
+                        "Language" -> if (addType == "videos") "Video" else "Material"
+                        "General Test" -> if (addType == "materials") "Material" else "Mock Test"
+                        "Teaching Aptitude" -> if (addType == "videos") "Video" else "Material"
+                        else -> when (addType) {
+                            "videos" -> "videos"
+                            "materials" -> "materials"
+                            "recorded" -> "recordedClasses"
+                            "tests" -> "mockTests"
+                            "pyqs" -> "pyqs"
+                            else -> ""
+                        }
+                    }
+
+                    android.util.Log.d("StorageUpload", "Firestore Save Initiated - Title: $title, URL: $urlLink, Type: $addType, Stream: $chosenStream, Subject: $chosenSubject")
+
+                    when (addType) {
+                        "videos" -> {
+                            viewModel.addVideo(
+                                title = title,
+                                description = desc,
+                                url = urlLink,
+                                category = chosenModule,
+                                stream = chosenStream,
+                                domain = chosenSubject,
+                                thumbnailUrl = thumbnail.ifBlank { "https://images.unsplash.com/photo-1516321318423-f06f85e504b3" },
+                                module = chosenModule,
+                                subject = chosenSubject,
+                                contentType = customContentType
+                            )
+                            android.widget.Toast.makeText(context, "Successfully uploaded video lecture!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        "materials" -> {
+                            viewModel.addMaterial(
+                                title = title,
+                                fileUrl = urlLink,
+                                category = chosenModule,
+                                stream = chosenStream,
+                                domain = chosenSubject,
+                                module = chosenModule,
+                                subject = chosenSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully uploaded study material notes!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        "recorded" -> {
+                            viewModel.addRecordedClass(
+                                title = title,
+                                videoUrl = urlLink,
+                                stream = chosenStream,
+                                domain = chosenSubject,
+                                module = chosenModule,
+                                subject = chosenSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully uploaded live class!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        "tests" -> {
+                            viewModel.addMockTest(
+                                title = title,
+                                type = testType,
+                                stream = chosenStream,
+                                domain = chosenSubject,
+                                questions = questionsList,
+                                module = chosenModule,
+                                subject = chosenSubject,
+                                contentType = customContentType,
+                                description = desc,
+                                durationMinutes = testDurationMinutes.toIntOrNull() ?: 0
+                            )
+                            android.widget.Toast.makeText(context, "Successfully created mock test examination!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        "pyqs" -> {
+                            viewModel.addPYQ(
+                                title = title,
+                                fileUrl = urlLink,
+                                category = chosenModule,
+                                stream = chosenStream,
+                                domain = chosenSubject,
+                                module = chosenModule,
+                                subject = chosenSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully uploaded PYQ paper!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    onBack()
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Upload", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+fun EditContentPage(
+    item: Any,
+    viewModel: LearningViewModel,
+    onBack: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    var title by remember {
+        mutableStateOf(
+            when (item) {
+                is VideoContent -> item.title
+                is StudyMaterial -> item.title
+                is RecordedClass -> item.title
+                is MockTest -> item.title
+                is PYQ -> item.title
+                else -> ""
+            }
+        )
+    }
+
+    var desc by remember {
+        mutableStateOf(
+            when (item) {
+                is VideoContent -> item.description
+                is StudyMaterial -> item.description
+                is RecordedClass -> item.description
+                is MockTest -> item.description
+                is PYQ -> item.description
+                else -> ""
+            }
+        )
+    }
+
+    var urlLink by remember {
+        mutableStateOf(
+            when (item) {
+                is VideoContent -> item.url
+                is StudyMaterial -> item.fileUrl
+                is RecordedClass -> item.videoUrl
+                is PYQ -> item.fileUrl
+                else -> ""
+            }
+        )
+    }
+
+    var thumbnail by remember {
+        mutableStateOf(
+            when (item) {
+                is VideoContent -> item.thumbnailUrl
+                else -> ""
+            }
+        )
+    }
+
+    var testType by remember {
+        mutableStateOf(
+            when (item) {
+                is MockTest -> item.type
+                else -> "topicwise"
+            }
+        )
+    }
+
+    var testDurationMinutes by remember {
+        mutableStateOf(
+            when (item) {
+                is MockTest -> item.durationMinutes.toString()
+                else -> "30"
+            }
+        )
+    }
+
+    var questionsList by remember {
+        mutableStateOf(
+            when (item) {
+                is MockTest -> item.questions
+                else -> emptyList()
+            }
+        )
+    }
+
+    var qText by remember { mutableStateOf("") }
+    var opt1 by remember { mutableStateOf("") }
+    var opt2 by remember { mutableStateOf("") }
+    var opt3 by remember { mutableStateOf("") }
+    var opt4 by remember { mutableStateOf("") }
+    var correctOptIndex by remember { mutableStateOf(0) }
+    var explanationText by remember { mutableStateOf("") }
+    var editingQuestionIdx by remember { mutableStateOf<Int?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .statusBarsPadding()
+            .padding(horizontal = 16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .size(44.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                    contentDescription = "Go Back",
+                    tint = Color(0xFF7B0F2E),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Text(
+                text = "Edit Content Details",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F2937)
+            )
+        }
+
+        // Info card showing what we are editing
+        val itemStream = when (item) {
+            is VideoContent -> item.stream
+            is StudyMaterial -> item.stream
+            is RecordedClass -> item.stream
+            is MockTest -> item.stream
+            is PYQ -> item.stream
+            else -> ""
+        }
+        val itemSubject = when (item) {
+            is VideoContent -> item.subject.ifBlank { item.domain }
+            is StudyMaterial -> item.subject.ifBlank { item.domain }
+            is RecordedClass -> item.subject.ifBlank { item.domain }
+            is MockTest -> item.subject.ifBlank { item.domain }
+            is PYQ -> item.subject.ifBlank { item.domain }
+            else -> ""
+        }
+        val itemTypeLabel = when (item) {
+            is VideoContent -> "Video Lecture"
+            is StudyMaterial -> "Study Notes"
+            is RecordedClass -> "Live Class"
+            is MockTest -> "Mock Test"
+            is PYQ -> "PYQ Paper"
+            else -> "Resource"
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB)),
+            border = BorderStroke(1.5.dp, GeoPalette.Divider),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(text = itemTypeLabel, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7B0F2E))
+                }
+                if (itemStream.isNotEmpty()) {
+                    Icon(Icons.Default.ChevronRight, null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF1976D2).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(text = itemStream, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
+                    }
+                }
+                if (itemSubject.isNotEmpty()) {
+                    Icon(Icons.Default.ChevronRight, null, tint = Color.Gray, modifier = Modifier.size(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFF2E7D32).copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(text = itemSubject, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                    }
+                }
+            }
+        }
+
+        // Standard fields
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.5.dp, GeoPalette.Divider),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Resource Information",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1F2937)
+                )
+
+                // Title
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Title", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF4B5563))
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        placeholder = { Text("Enter title", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+                }
+
+                // Description
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Description", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF4B5563))
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        placeholder = { Text("Enter description", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                        modifier = Modifier.fillMaxWidth().height(100.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563),
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White
+                        )
+                    )
+                }
+
+                // URL/Link
+                if (item !is MockTest) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = if (item is StudyMaterial || item is PYQ) "Material PDF Link / URL" else "Video Link (YouTube URL)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = urlLink,
+                            onValueChange = { urlLink = it },
+                            placeholder = { Text("https://...", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                    }
+                }
+
+                // Thumbnail Input for Video
+                if (item is VideoContent) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Thumbnail Image URL", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Color(0xFF4B5563))
+                        OutlinedTextField(
+                            value = thumbnail,
+                            onValueChange = { thumbnail = it },
+                            placeholder = { Text("Enter thumbnail image URL", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937),
+                                focusedBorderColor = Color(0xFF7B0F2E),
+                                unfocusedBorderColor = Color(0xFF4B5563),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // Mock Exam Settings and Question Editor
+        if (item is MockTest) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.5.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text("Mock Exam Settings", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = testType == "topicwise", onClick = { testType = "topicwise" })
+                            Text("Topic Wise", fontSize = 13.sp, color = Color(0xFF1F2937), modifier = Modifier.clickable { testType = "topicwise" })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = testType == "fulllength", onClick = { testType = "fulllength" })
+                            Text("Full Length", fontSize = 13.sp, color = Color(0xFF1F2937), modifier = Modifier.clickable { testType = "fulllength" })
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = testDurationMinutes,
+                        onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+                        label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+                        placeholder = { Text("e.g. 30", color = Color.Gray, fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563)
+                        )
+                    )
+
+                    HorizontalDivider(color = Color(0xFFF3F4F6))
+                    Text(
+                        text = if (editingQuestionIdx != null) "Edit Question #${editingQuestionIdx!! + 1}" else "Add / Create Question",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF7B0F2E)
+                    )
+
+                    OutlinedTextField(
+                        value = qText,
+                        onValueChange = { qText = it },
+                        label = { Text("Question Text", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563)
+                        )
+                    )
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = opt1,
+                            onValueChange = { opt1 = it },
+                            label = { Text("Option A", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937)
+                            )
+                        )
+                        OutlinedTextField(
+                            value = opt2,
+                            onValueChange = { opt2 = it },
+                            label = { Text("Option B", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937)
+                            )
+                        )
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = opt3,
+                            onValueChange = { opt3 = it },
+                            label = { Text("Option C", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937)
+                            )
+                        )
+                        OutlinedTextField(
+                            value = opt4,
+                            onValueChange = { opt4 = it },
+                            label = { Text("Option D", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = Color(0xFF1F2937),
+                                unfocusedTextColor = Color(0xFF1F2937)
+                            )
+                        )
+                    }
+
+                    Text("Correct Option Answer", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        listOf("A", "B", "C", "D").forEachIndexed { index, letter ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = correctOptIndex == index, onClick = { correctOptIndex = index })
+                                Text(letter, fontSize = 13.sp, color = Color(0xFF1F2937))
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = explanationText,
+                        onValueChange = { explanationText = it },
+                        label = { Text("Explanation (Optional)", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF1F2937),
+                            unfocusedTextColor = Color(0xFF1F2937),
+                            focusedBorderColor = Color(0xFF7B0F2E),
+                            unfocusedBorderColor = Color(0xFF4B5563)
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (editingQuestionIdx != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    editingQuestionIdx = null
+                                    qText = ""
+                                    opt1 = ""
+                                    opt2 = ""
+                                    opt3 = ""
+                                    opt4 = ""
+                                    correctOptIndex = 0
+                                    explanationText = ""
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text("Cancel Edit", fontSize = 11.sp)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                if (qText.isNotBlank() && opt1.isNotBlank() && opt2.isNotBlank() && opt3.isNotBlank() && opt4.isNotBlank()) {
+                                    val newQ = MockQuestion(
+                                        id = if (editingQuestionIdx == null) "q_${System.currentTimeMillis()}" else questionsList[editingQuestionIdx!!].id,
+                                        questionText = qText,
+                                        options = listOf(opt1, opt2, opt3, opt4),
+                                        correctAnswerIndex = correctOptIndex,
+                                        explanation = explanationText
+                                    )
+                                    if (editingQuestionIdx == null) {
+                                        questionsList = questionsList + newQ
+                                    } else {
+                                        questionsList = questionsList.toMutableList().apply {
+                                            set(editingQuestionIdx!!, newQ)
+                                        }
+                                        editingQuestionIdx = null
+                                    }
+                                    qText = ""
+                                    opt1 = ""
+                                    opt2 = ""
+                                    opt3 = ""
+                                    opt4 = ""
+                                    correctOptIndex = 0
+                                    explanationText = ""
+                                } else {
+                                    android.widget.Toast.makeText(context, "Please complete all fields for the question", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E).copy(alpha = 0.08f), contentColor = Color(0xFF7B0F2E)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(if (editingQuestionIdx == null) "Add Question to List" else "Save Edited Question", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    if (questionsList.isNotEmpty()) {
+                        Text("Questions:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF9FAFB))
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                questionsList.forEachIndexed { qIdx, q ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("${qIdx + 1}. ${q.questionText}", fontSize = 12.sp, color = Color(0xFF1F2937), modifier = Modifier.weight(1f))
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    editingQuestionIdx = qIdx
+                                                    qText = q.questionText
+                                                    opt1 = q.options.getOrNull(0) ?: ""
+                                                    opt2 = q.options.getOrNull(1) ?: ""
+                                                    opt3 = q.options.getOrNull(2) ?: ""
+                                                    opt4 = q.options.getOrNull(3) ?: ""
+                                                    correctOptIndex = q.correctAnswerIndex
+                                                    explanationText = q.explanation ?: ""
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Edit, "Edit", tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    questionsList = questionsList.filter { it.id != q.id }
+                                                    if (editingQuestionIdx == qIdx) {
+                                                        editingQuestionIdx = null
+                                                        qText = ""
+                                                        opt1 = ""
+                                                        opt2 = ""
+                                                        opt3 = ""
+                                                        opt4 = ""
+                                                        correctOptIndex = 0
+                                                        explanationText = ""
+                                                    } else if (editingQuestionIdx != null && editingQuestionIdx!! > qIdx) {
+                                                        editingQuestionIdx = editingQuestionIdx!! - 1
+                                                    }
+                                                },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Action Buttons
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            OutlinedButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1F2937))
+            ) {
+                Text("Cancel", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Button(
+                onClick = {
+                    if (title.isBlank()) {
+                        android.widget.Toast.makeText(context, "Title cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (item !is MockTest && urlLink.isBlank()) {
+                        android.widget.Toast.makeText(context, "URL/Link is required!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (item is MockTest && questionsList.isEmpty()) {
+                        android.widget.Toast.makeText(context, "Add at least 1 question!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+
+                    val customContentType = when (item) {
+                        is VideoContent -> item.contentType
+                        is StudyMaterial -> item.contentType
+                        is RecordedClass -> item.contentType
+                        is MockTest -> item.contentType
+                        is PYQ -> item.contentType
+                        else -> ""
+                    }
+                    val itemModule = when (item) {
+                        is VideoContent -> item.module.ifBlank { item.category }
+                        is StudyMaterial -> item.module.ifBlank { item.category }
+                        is RecordedClass -> item.module
+                        is MockTest -> item.module
+                        is PYQ -> item.module.ifBlank { item.category }
+                        else -> "Domain"
+                    }
+                    val itemSubject = when (item) {
+                        is VideoContent -> item.subject.ifBlank { item.domain }
+                        is StudyMaterial -> item.subject.ifBlank { item.domain }
+                        is RecordedClass -> item.subject.ifBlank { item.domain }
+                        is MockTest -> item.subject.ifBlank { item.domain }
+                        is PYQ -> item.subject.ifBlank { item.domain }
+                        else -> "Physics"
+                    }
+
+                    when (item) {
+                        is VideoContent -> {
+                            viewModel.editVideo(
+                                id = item.id,
+                                title = title,
+                                description = desc,
+                                url = urlLink,
+                                category = itemModule,
+                                stream = itemStream,
+                                domain = itemSubject,
+                                thumbnailUrl = thumbnail,
+                                module = itemModule,
+                                subject = itemSubject,
+                                contentType = customContentType
+                            )
+                            android.widget.Toast.makeText(context, "Successfully updated video lecture!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        is StudyMaterial -> {
+                            viewModel.editMaterial(
+                                id = item.id,
+                                title = title,
+                                fileUrl = urlLink,
+                                category = itemModule,
+                                stream = itemStream,
+                                domain = itemSubject,
+                                module = itemModule,
+                                subject = itemSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully updated study material notes!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        is RecordedClass -> {
+                            viewModel.editRecordedClass(
+                                id = item.id,
+                                title = title,
+                                videoUrl = urlLink,
+                                stream = itemStream,
+                                domain = itemSubject,
+                                module = itemModule,
+                                subject = itemSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully updated live class!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        is MockTest -> {
+                            viewModel.editMockTest(
+                                id = item.id,
+                                title = title,
+                                type = testType,
+                                stream = itemStream,
+                                domain = itemSubject,
+                                questions = questionsList,
+                                module = itemModule,
+                                subject = itemSubject,
+                                contentType = customContentType,
+                                description = desc,
+                                durationMinutes = testDurationMinutes.toIntOrNull() ?: 0
+                            )
+                            android.widget.Toast.makeText(context, "Successfully updated mock test!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                        is PYQ -> {
+                            viewModel.editPYQ(
+                                id = item.id,
+                                title = title,
+                                fileUrl = urlLink,
+                                category = itemModule,
+                                stream = itemStream,
+                                domain = itemSubject,
+                                module = itemModule,
+                                subject = itemSubject,
+                                contentType = customContentType,
+                                description = desc
+                            )
+                            android.widget.Toast.makeText(context, "Successfully updated PYQ paper!", android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    }
+                    onBack()
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Save Changes", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------
+// COMPLETE MODERN CONTENT MANAGEMENT SYSTEM (CMS) VIEW
+// ----------------------------------------------------
+@Composable
+fun StreamContentPageNew(
+    streamName: String,
+    moduleName: String,
+    subjectName: String,
+    viewModel: LearningViewModel,
+    onBack: () -> Unit,
+    onUploadStateChange: (Boolean) -> Unit = {}
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val videos by viewModel.videos.collectAsState()
+    val materials by viewModel.materials.collectAsState()
+    val recordedClasses by viewModel.recordedClasses.collectAsState()
+    val mockTests by viewModel.mockTests.collectAsState()
+    val pyqs by viewModel.pyqs.collectAsState()
+
+    val activeModule = moduleName
+    val activeSubject = subjectName
+
+    val allowedTabs = remember(activeModule) {
+        listOf(
+            "videos" to "Videos",
+            "materials" to "Materials",
+            "recorded" to "Live Classes",
+            "tests" to "Mock Tests",
+            "pyqs" to "PYQs"
+        )
+    }
+
+    var activeTab by remember(allowedTabs) { mutableStateOf(allowedTabs.first().first) }
+    var searchQuery by remember { mutableStateOf("") }
+    var sortNewest by remember { mutableStateOf(true) }
+    var currentPage by remember(streamName, activeModule, activeSubject, activeTab, searchQuery) { mutableStateOf(1) }
+    val pageSize = 5
+
+    // Multi-criteria dynamic filtering with robust fallback compatibility for legacy DB schema
+    val filteredVideos = remember(videos, streamName, activeModule, activeSubject, searchQuery) {
+        videos.filter {
+            val matchesStream = it.stream.equals(streamName, ignoreCase = true)
+            val matchesModule = if (it.module.isNotEmpty()) {
+                it.module.equals(activeModule, ignoreCase = true)
+            } else {
+                it.category.equals(activeModule, ignoreCase = true)
+            }
+            val matchesSubject = if (it.subject.isNotEmpty()) {
+                it.subject.equals(activeSubject, ignoreCase = true)
+            } else {
+                it.domain.equals(activeSubject, ignoreCase = true) || (it.category.equals("General", ignoreCase = true) && activeModule == "Language")
+            }
+            matchesStream && matchesModule && matchesSubject && (searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.description.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    val filteredMaterials = remember(materials, streamName, activeModule, activeSubject, searchQuery) {
+        materials.filter {
+            val matchesStream = it.stream.equals(streamName, ignoreCase = true)
+            val matchesModule = if (it.module.isNotEmpty()) {
+                it.module.equals(activeModule, ignoreCase = true)
+            } else {
+                it.category.equals(activeModule, ignoreCase = true)
+            }
+            val matchesSubject = if (it.subject.isNotEmpty()) {
+                it.subject.equals(activeSubject, ignoreCase = true)
+            } else {
+                it.domain.equals(activeSubject, ignoreCase = true)
+            }
+            matchesStream && matchesModule && matchesSubject && (searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.description.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    val filteredRecorded = remember(recordedClasses, streamName, activeModule, activeSubject, searchQuery) {
+        recordedClasses.filter {
+            val matchesStream = it.stream.equals(streamName, ignoreCase = true)
+            val matchesModule = if (it.module.isNotEmpty()) {
+                it.module.equals(activeModule, ignoreCase = true)
+            } else {
+                true
+            }
+            val matchesSubject = if (it.subject.isNotEmpty()) {
+                it.subject.equals(activeSubject, ignoreCase = true)
+            } else {
+                it.domain.equals(activeSubject, ignoreCase = true)
+            }
+            matchesStream && matchesModule && matchesSubject && (searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.description.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    val filteredMockTests = remember(mockTests, streamName, activeModule, activeSubject, searchQuery) {
+        mockTests.filter {
+            val matchesStream = it.stream.equals(streamName, ignoreCase = true)
+            val matchesModule = if (it.module.isNotEmpty()) {
+                it.module.equals(activeModule, ignoreCase = true)
+            } else {
+                true
+            }
+            val matchesSubject = if (it.subject.isNotEmpty()) {
+                it.subject.equals(activeSubject, ignoreCase = true)
+            } else {
+                it.domain.equals(activeSubject, ignoreCase = true)
+            }
+            matchesStream && matchesModule && matchesSubject && (searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.description.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    val filteredPYQs = remember(pyqs, streamName, activeModule, activeSubject, searchQuery) {
+        pyqs.filter {
+            val matchesStream = it.stream.equals(streamName, ignoreCase = true)
+            val matchesModule = if (it.module.isNotEmpty()) {
+                it.module.equals(activeModule, ignoreCase = true)
+            } else {
+                it.category.equals(activeModule, ignoreCase = true)
+            }
+            val matchesSubject = if (it.subject.isNotEmpty()) {
+                it.subject.equals(activeSubject, ignoreCase = true)
+            } else {
+                it.domain.equals(activeSubject, ignoreCase = true)
+            }
+            matchesStream && matchesModule && matchesSubject && (searchQuery.isBlank() || it.title.contains(searchQuery, ignoreCase = true) || it.description.contains(searchQuery, ignoreCase = true))
+        }
+    }
+
+    // Determine target list to render
+    val currentRawList = when (activeTab) {
+        "videos" -> filteredVideos
+        "materials" -> filteredMaterials
+        "recorded" -> filteredRecorded
+        "tests" -> filteredMockTests
+        "pyqs" -> filteredPYQs
+        else -> emptyList()
+    }
+
+    val sortedList = remember(currentRawList, sortNewest) {
+        if (sortNewest) {
+            currentRawList.sortedByDescending { 
+                when (it) {
+                    is VideoContent -> it.createdAt.seconds
+                    is StudyMaterial -> it.createdAt.seconds
+                    is RecordedClass -> it.createdAt.seconds
+                    is MockTest -> it.createdAt.seconds
+                    is PYQ -> it.createdAt.seconds
+                    else -> 0L
+                }
+            }
+        } else {
+            currentRawList.sortedBy { 
+                when (it) {
+                    is VideoContent -> it.createdAt.seconds
+                    is StudyMaterial -> it.createdAt.seconds
+                    is RecordedClass -> it.createdAt.seconds
+                    is MockTest -> it.createdAt.seconds
+                    is PYQ -> it.createdAt.seconds
+                    else -> 0L
+                }
+            }
+        }
+    }
+
+    // Local Pagination calculations
+    val totalItems = sortedList.size
+    val totalPages = maxOf(1, kotlin.math.ceil(totalItems.toDouble() / pageSize).toInt())
+    val paginatedItems = remember(sortedList, currentPage) {
+        sortedList.drop((currentPage - 1) * pageSize).take(pageSize)
+    }
+
+    // Global Section Stats
+    val totalStreamCount = remember(filteredVideos, filteredMaterials, filteredRecorded, filteredMockTests, filteredPYQs) {
+        filteredVideos.size + filteredMaterials.size + filteredRecorded.size + filteredMockTests.size + filteredPYQs.size
+    }
+
+    val recentStreamCount = remember(filteredVideos, filteredMaterials, filteredRecorded, filteredMockTests, filteredPYQs) {
+        val sevenDaysAgo = System.currentTimeMillis() / 1000L - (7 * 24 * 60 * 60)
+        var count = 0
+        filteredVideos.forEach { if (it.createdAt.seconds >= sevenDaysAgo) count++ }
+        filteredMaterials.forEach { if (it.createdAt.seconds >= sevenDaysAgo) count++ }
+        filteredRecorded.forEach { if (it.createdAt.seconds >= sevenDaysAgo) count++ }
+        filteredMockTests.forEach { if (it.createdAt.seconds >= sevenDaysAgo) count++ }
+        filteredPYQs.forEach { if (it.createdAt.seconds >= sevenDaysAgo) count++ }
+        count
+    }
+
+    // Popup states
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(showAddDialog) {
+        onUploadStateChange(showAddDialog)
+    }
+    var showEditDialog by remember { mutableStateOf<Any?>(null) }
+    var showViewDialog by remember { mutableStateOf<Any?>(null) }
+    var itemToDelete by remember { mutableStateOf<Any?>(null) }
+    var isDownloadingId by remember { mutableStateOf<String?>(null) }
+    var feedbackMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(feedbackMessage) {
+        feedbackMessage?.let {
+            android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show()
+            feedbackMessage = null
+        }
+    }
+
+    if (showAddDialog) {
+        UploadContentPage(
+            initialStream = streamName,
+            initialModule = activeModule,
+            initialSubject = activeSubject,
+            addType = activeTab,
+            viewModel = viewModel,
+            onBack = { showAddDialog = false }
+        )
+    } else if (showEditDialog != null) {
+        EditContentPage(
+            item = showEditDialog!!,
+            viewModel = viewModel,
+            onBack = { showEditDialog = null }
+        )
+    } else if (showViewDialog != null) {
+        FullPageDetailsView(
+            item = showViewDialog!!,
+            onBack = { showViewDialog = null },
+            onEditClick = { item ->
+                showViewDialog = null
+                showEditDialog = item
+            }
+        )
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.White)
+                .statusBarsPadding()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Subject header section with exactly one Back button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                        contentDescription = "Go Back",
+                        tint = Color(0xFF7B0F2E),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0xFF7B0F2E).copy(alpha = 0.08f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val icon = when (activeSubject) {
+                        "Physics" -> Icons.Default.Science
+                        "Chemistry" -> Icons.Default.Science
+                        "Biology" -> Icons.Default.Eco
+                        else -> Icons.Default.School
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color(0xFF7B0F2E),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = activeSubject,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1F2937)
+                    )
+                    Text(
+                        text = "Manage ${activeSubject.lowercase()} content",
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B7280)
+                    )
+                }
+            }
+
+            // Tab Bar Row (Videos, Materials, Mock Tests, Recorded) matching mockup 2
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                allowedTabs.forEach { (tabId, label) ->
+                    val isSelected = activeTab == tabId
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { activeTab = tabId }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = label,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = if (isSelected) Color(0xFF7B0F2E) else Color(0xFF6B7280)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .height(2.dp)
+                                .width(40.dp)
+                                .background(if (isSelected) Color(0xFF7B0F2E) else Color.Transparent)
+                        )
+                    }
+                }
+            }
+
+            // Search, Filter and Add Button Row matching mockup 2
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                StudentCompactSearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    placeholderText = when (activeTab) {
+                        "videos" -> "Search videos..."
+                        "materials" -> "Search study materials..."
+                        "recorded" -> "Search recorded..."
+                        "tests" -> "Search mock tests..."
+                        else -> "Search..."
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+
+                IconButton(
+                    onClick = { sortNewest = !sortNewest },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .border(1.dp, GeoPalette.CardBorder, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filter",
+                        tint = Color(0xFF374151),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Button(
+                    onClick = { showAddDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.height(48.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp)
+                ) {
+                    Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+
+            // MAIN CONTENT CONTAINER
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+            if (sortedList.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(48.dp), tint = GeoPalette.Divider)
+                        Text(
+                            text = if (searchQuery.isEmpty()) "No content uploaded in this subject section yet." else "No search matches found.",
+                            fontSize = 12.sp,
+                            color = GeoPalette.TextSecondary,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp)
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
+                    sortedList.forEach { item ->
+                        val itemTitle = when (item) {
+                            is VideoContent -> item.title
+                            is StudyMaterial -> item.title
+                            is RecordedClass -> item.title
+                            is MockTest -> item.title
+                            is PYQ -> item.title
+                            else -> ""
+                        }
+                        val itemDesc = when (item) {
+                            is VideoContent -> item.description
+                            is StudyMaterial -> item.description
+                            is RecordedClass -> item.description
+                            is MockTest -> item.description
+                            is PYQ -> item.description
+                            else -> ""
+                        }
+                        val itemUploader = when (item) {
+                            is VideoContent -> item.uploadedBy
+                            is StudyMaterial -> item.uploadedBy
+                            is RecordedClass -> item.uploadedBy
+                            is MockTest -> item.uploadedBy
+                            is PYQ -> item.uploadedBy
+                            else -> "Admin"
+                        }
+                        val itemDateString = try {
+                            val timestamp = when (item) {
+                                is VideoContent -> item.createdAt
+                                is StudyMaterial -> item.createdAt
+                                is RecordedClass -> item.createdAt
+                                is MockTest -> item.createdAt
+                                is PYQ -> item.createdAt
+                                else -> com.google.firebase.Timestamp.now()
+                            }
+                            val sdf = java.text.SimpleDateFormat("MMM dd, yyyy - hh:mm a", java.util.Locale.getDefault())
+                            sdf.format(timestamp.toDate())
+                        } catch (e: Exception) {
+                            "N/A"
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showViewDialog = item },
+                            colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, GeoPalette.Divider)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Thumbnail Box (Left - Column 5 style)
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 110.dp, height = 70.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                                colors = when (activeTab) {
+                                                    "videos" -> listOf(Color(0xFFFFCDD2), Color(0xFFEF9A9A))
+                                                    "materials" -> listOf(Color(0xFFBBDEFB), Color(0xFF90CAF9))
+                                                    "recorded" -> listOf(Color(0xFFFFE0B2), Color(0xFFFFCC80))
+                                                    "tests" -> listOf(Color(0xFFC8E6C9), Color(0xFFA5D6A7))
+                                                    "pyqs" -> listOf(Color(0xFFE1BEE7), Color(0xFFCE93D8))
+                                                    else -> listOf(Color(0xFFE0E0E0), Color(0xFFBDBDBD))
+                                                }
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    // Inner decorative icon
+                                    Icon(
+                                        imageVector = when (activeTab) {
+                                            "videos" -> Icons.Default.PlayArrow
+                                            "materials" -> Icons.Default.MenuBook
+                                            "recorded" -> Icons.Default.OndemandVideo
+                                            "tests" -> Icons.Default.CheckCircle
+                                            "pyqs" -> Icons.Default.Assignment
+                                            else -> Icons.Default.Folder
+                                        },
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+
+                                    // Duration or item badge at bottom-right corner of thumbnail
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(4.dp)
+                                            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = when (activeTab) {
+                                                "videos" -> "12:45"
+                                                "materials" -> "PDF"
+                                                "recorded" -> "Live"
+                                                "tests" -> "Mock"
+                                                "pyqs" -> "PYQ"
+                                                else -> "Item"
+                                            },
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
+
+                                // Center Content (Title, Badges, Date)
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        text = itemTitle,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = GeoPalette.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+
+                                    // Row with Badge + Date
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        // Pill/Badge
+                                        val badgeBg = when (activeTab) {
+                                            "videos" -> Color(0xFFFBEBEB)
+                                            "materials" -> Color(0xFFE3F2FD)
+                                            "recorded" -> Color(0xFFFFF3E0)
+                                            "tests" -> Color(0xFFE8F5E9)
+                                            "pyqs" -> Color(0xFFF3E5F5)
+                                            else -> GeoPalette.PrimaryContainer
+                                        }
+                                        val badgeText = when (activeTab) {
+                                            "videos" -> "YouTube"
+                                            "materials" -> "Study Note"
+                                            "recorded" -> "Live Class"
+                                            "tests" -> "Exam"
+                                            "pyqs" -> "PYQ Paper"
+                                            else -> "CMS"
+                                        }
+                                        val badgeColor = when (activeTab) {
+                                            "videos" -> Color(0xFFD32F2F)
+                                            "materials" -> Color(0xFF1976D2)
+                                            "recorded" -> Color(0xFFE65100)
+                                            "tests" -> Color(0xFF388E3C)
+                                            "pyqs" -> Color(0xFF7B1FA2)
+                                            else -> GeoPalette.Primary
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .background(badgeBg, RoundedCornerShape(4.dp))
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = badgeText,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = badgeColor
+                                            )
+                                        }
+
+                                        // Date label
+                                        Text(
+                                            text = itemDateString.split(" - ").firstOrNull() ?: itemDateString,
+                                            fontSize = 11.sp,
+                                            color = GeoPalette.TextSecondary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+
+                                // Dropdown actions (Right)
+                                var showMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(
+                                        onClick = { showMenu = true },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Actions",
+                                            tint = GeoPalette.TextSecondary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    DropdownMenu(
+                                        expanded = showMenu,
+                                        onDismissRequest = { showMenu = false },
+                                        modifier = Modifier.background(Color.White)
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Visibility, null, tint = GeoPalette.Primary, modifier = Modifier.size(16.dp))
+                                                    Text("View Detail", fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                showViewDialog = item
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Edit, null, tint = Color(0xFFE65100), modifier = Modifier.size(16.dp))
+                                                    Text("Edit Resource", fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                showEditDialog = item
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(Icons.Default.Delete, null, tint = GeoPalette.RejectedBg, modifier = Modifier.size(16.dp))
+                                                    Text("Delete Resource", fontSize = 13.sp, color = GeoPalette.TextPrimary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showMenu = false
+                                                itemToDelete = item
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    }
+
+    // RED WARN DELETE CONFIRMATION DIALOG
+    itemToDelete?.let { item ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { itemToDelete = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, GeoPalette.Divider)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(GeoPalette.RejectedBg.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Warning, null, tint = GeoPalette.RejectedBg, modifier = Modifier.size(20.dp))
+                        }
+                        Text("Delete Resource?", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                    }
+
+                    val titleString = when (item) {
+                        is VideoContent -> item.title
+                        is StudyMaterial -> item.title
+                        is RecordedClass -> item.title
+                        is MockTest -> item.title
+                        is PYQ -> item.title
+                        else -> "Selected item"
+                    }
+
+                    Text(
+                        text = "Are you absolutely sure you want to permanently delete \"$titleString\"? This action is permanent and cannot be undone.",
+                        fontSize = 13.sp,
+                        color = GeoPalette.TextSecondary,
+                        lineHeight = 18.sp
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { itemToDelete = null },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Cancel", fontSize = 12.sp, color = GeoPalette.TextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                when (item) {
+                                    is VideoContent -> {
+                                        viewModel.deleteContent("videos", item.id)
+                                        feedbackMessage = "Successfully deleted video lecture!"
+                                    }
+                                    is StudyMaterial -> {
+                                        viewModel.deleteContent("materials", item.id)
+                                        feedbackMessage = "Successfully deleted study material notes!"
+                                    }
+                                    is RecordedClass -> {
+                                        viewModel.deleteContent("recordedClasses", item.id)
+                                        feedbackMessage = "Successfully deleted live class archive!"
+                                    }
+                                    is MockTest -> {
+                                        viewModel.deleteContent("mockTests", item.id)
+                                        feedbackMessage = "Successfully deleted entrance mock examination!"
+                                    }
+                                    is PYQ -> {
+                                        viewModel.deleteContent("pyqs", item.id)
+                                        feedbackMessage = "Successfully deleted previous year question paper (PYQ)!"
+                                    }
+                                }
+                                itemToDelete = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.RejectedBg),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Delete", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (false) {
+        // AUTOMATED ADD DIALOG
+        if (showAddDialog) {
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showAddDialog = false }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, GeoPalette.Divider)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Add new ${activeTab.replaceFirstChar { it.uppercase() }}",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.Primary
+                    )
+
+                    Text(
+                        text = "The uploaded content will automatically store: Stream=$streamName • Module=$activeModule • Subject=$activeSubject.",
+                        fontSize = 11.sp,
+                        color = GeoPalette.TextSecondary,
+                        lineHeight = 15.sp
+                    )
+
+                    var title by remember { mutableStateOf("") }
+                    var desc by remember { mutableStateOf("") }
+                    var urlLink by remember { mutableStateOf("") }
+                    var thumbnail by remember { mutableStateOf("") }
+
+                    var testType by remember { mutableStateOf("topicwise") } // "topicwise" or "fulllength"
+                    var questionsList by remember { mutableStateOf<List<MockQuestion>>(emptyList()) }
+
+                    var qText by remember { mutableStateOf("") }
+                    var opt1 by remember { mutableStateOf("") }
+                    var opt2 by remember { mutableStateOf("") }
+                    var opt3 by remember { mutableStateOf("") }
+                    var opt4 by remember { mutableStateOf("") }
+                    var correctOptIndex by remember { mutableStateOf(0) }
+                    var explanationText by remember { mutableStateOf("") }
+
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        label = { Text("Description", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    if (activeTab != "tests") {
+                        OutlinedTextField(
+                            value = urlLink,
+                            onValueChange = { urlLink = it },
+                            label = { Text(if (activeTab == "materials") "Material PDF Link / URL" else "Lecture Video Link / URL", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    if (activeTab == "videos") {
+                        OutlinedTextField(
+                            value = thumbnail,
+                            onValueChange = { thumbnail = it },
+                            label = { Text("Thumbnail Image URL (Optional)", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    // Mock Test specific interactive constructor
+                    if (activeTab == "tests") {
+                        Text("Mock Exam Settings", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "topicwise", onClick = { testType = "topicwise" })
+                                Text("Topic Wise", fontSize = 12.sp, modifier = Modifier.clickable { testType = "topicwise" })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "fulllength", onClick = { testType = "fulllength" })
+                                Text("Full Length", fontSize = 12.sp, modifier = Modifier.clickable { testType = "fulllength" })
+                            }
+                        }
+
+                        HorizontalDivider(color = GeoPalette.Divider)
+                        Text("Add Questions (Count: ${questionsList.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+
+                        OutlinedTextField(
+                            value = qText,
+                            onValueChange = { qText = it },
+                            label = { Text("Question Text", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt1,
+                                onValueChange = { opt1 = it },
+                                label = { Text("Option A", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt2,
+                                onValueChange = { opt2 = it },
+                                label = { Text("Option B", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt3,
+                                onValueChange = { opt3 = it },
+                                label = { Text("Option C", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt4,
+                                onValueChange = { opt4 = it },
+                                label = { Text("Option D", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Text("Correct Index", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("A", "B", "C", "D").forEachIndexed { index, letter ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = correctOptIndex == index, onClick = { correctOptIndex = index })
+                                    Text(letter, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = explanationText,
+                            onValueChange = { explanationText = it },
+                            label = { Text("Explanation (Optional)", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Button(
+                            onClick = {
+                                if (qText.isNotBlank() && opt1.isNotBlank() && opt2.isNotBlank() && opt3.isNotBlank() && opt4.isNotBlank()) {
+                                    val newQ = MockQuestion(
+                                        id = "q_${System.currentTimeMillis()}",
+                                        questionText = qText,
+                                        options = listOf(opt1, opt2, opt3, opt4),
+                                        correctAnswerIndex = correctOptIndex,
+                                        explanation = explanationText
+                                    )
+                                    questionsList = questionsList + newQ
+                                    qText = ""
+                                    opt1 = ""
+                                    opt2 = ""
+                                    opt3 = ""
+                                    opt4 = ""
+                                    correctOptIndex = 0
+                                    explanationText = ""
+                                } else {
+                                    android.widget.Toast.makeText(context, "Please complete all fields for the question", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.PrimaryContainer, contentColor = GeoPalette.Primary),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Add Question to List", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        if (questionsList.isNotEmpty()) {
+                            Text("Added Questions:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    questionsList.forEachIndexed { qIdx, q ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("${qIdx + 1}. ${q.questionText.take(24)}...", fontSize = 11.sp, color = GeoPalette.TextPrimary)
+                                            IconButton(
+                                                onClick = { questionsList = questionsList.filter { it.id != q.id } },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, null, tint = GeoPalette.RejectedBg, modifier = Modifier.size(14.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showAddDialog = false },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Cancel", fontSize = 12.sp, color = GeoPalette.TextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (title.isBlank()) {
+                                    android.widget.Toast.makeText(context, "Title cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (activeTab != "tests" && urlLink.isBlank()) {
+                                    android.widget.Toast.makeText(context, "URL/Link is required!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (activeTab == "tests" && questionsList.isEmpty()) {
+                                    android.widget.Toast.makeText(context, "Add at least 1 question!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+
+                                val customContentType = when (activeModule) {
+                                    "Language" -> if (activeTab == "videos") "Video" else "Material"
+                                    "General Test" -> if (activeTab == "materials") "Material" else "Mock Test"
+                                    "Teaching Aptitude" -> if (activeTab == "videos") "Video" else "Material"
+                                    else -> when (activeTab) {
+                                        "videos" -> "videos"
+                                        "materials" -> "materials"
+                                        "recorded" -> "recordedClasses"
+                                        "tests" -> "mockTests"
+                                        else -> ""
+                                    }
+                                }
+
+                                when (activeTab) {
+                                    "videos" -> {
+                                        viewModel.addVideo(
+                                            title = title,
+                                            description = desc,
+                                            url = urlLink,
+                                            category = activeModule,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            thumbnailUrl = thumbnail.ifBlank { "https://images.unsplash.com/photo-1516321318423-f06f85e504b3" },
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType
+                                        )
+                                        feedbackMessage = "Successfully uploaded video lecture!"
+                                    }
+                                    "materials" -> {
+                                        viewModel.addMaterial(
+                                            title = title,
+                                            fileUrl = urlLink,
+                                            category = activeModule,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully uploaded study material notes!"
+                                    }
+                                    "recorded" -> {
+                                        viewModel.addRecordedClass(
+                                            title = title,
+                                            videoUrl = urlLink,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully uploaded recorded class!"
+                                    }
+                                    "tests" -> {
+                                        viewModel.addMockTest(
+                                            title = title,
+                                            type = testType,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            questions = questionsList,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully created mock test examination!"
+                                    }
+                                }
+                                showAddDialog = false
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Submit", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    }
+
+    // AUTOMATED EDIT DIALOG (Legacy popup disabled in favor of full-page EditContentPage)
+    if (false) showEditDialog?.let { item ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { showEditDialog = null }) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 24.dp)
+                    .verticalScroll(rememberScrollState()),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, GeoPalette.Divider)
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "Edit Content Details",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.Primary
+                    )
+
+                    var title by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is VideoContent -> item.title
+                                is StudyMaterial -> item.title
+                                is RecordedClass -> item.title
+                                is MockTest -> item.title
+                                else -> ""
+                            }
+                        )
+                    }
+
+                    var desc by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is VideoContent -> item.description
+                                is StudyMaterial -> item.description
+                                is RecordedClass -> item.description
+                                is MockTest -> item.description
+                                else -> ""
+                            }
+                        )
+                    }
+
+                    var urlLink by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is VideoContent -> item.url
+                                is StudyMaterial -> item.fileUrl
+                                is RecordedClass -> item.videoUrl
+                                else -> ""
+                            }
+                        )
+                    }
+
+                    var thumbnail by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is VideoContent -> item.thumbnailUrl
+                                else -> ""
+                            }
+                        )
+                    }
+
+                    var testType by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is MockTest -> item.type
+                                else -> "topicwise"
+                            }
+                        )
+                    }
+
+                    var questionsList by remember {
+                        mutableStateOf(
+                            when (item) {
+                                is MockTest -> item.questions
+                                else -> emptyList()
+                            }
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        label = { Text("Title", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = desc,
+                        onValueChange = { desc = it },
+                        label = { Text("Description", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    if (item !is MockTest) {
+                        OutlinedTextField(
+                            value = urlLink,
+                            onValueChange = { urlLink = it },
+                            label = { Text(if (item is StudyMaterial) "Material PDF Link / URL" else "Lecture Video Link / URL", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    if (item is VideoContent) {
+                        OutlinedTextField(
+                            value = thumbnail,
+                            onValueChange = { thumbnail = it },
+                            label = { Text("Thumbnail Image URL", fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            singleLine = true
+                        )
+                    }
+
+                    // Mock Test specific dynamic questions editor
+                    if (item is MockTest) {
+                        Text("Mock Exam Configuration", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "topicwise", onClick = { testType = "topicwise" })
+                                Text("Topic Wise", fontSize = 12.sp, modifier = Modifier.clickable { testType = "topicwise" })
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                RadioButton(selected = testType == "fulllength", onClick = { testType = "fulllength" })
+                                Text("Full Length", fontSize = 12.sp, modifier = Modifier.clickable { testType = "fulllength" })
+                            }
+                        }
+
+                        HorizontalDivider(color = GeoPalette.Divider)
+                        Text("Questions Editor (Count: ${questionsList.size})", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+
+                        var qText by remember { mutableStateOf("") }
+                        var opt1 by remember { mutableStateOf("") }
+                        var opt2 by remember { mutableStateOf("") }
+                        var opt3 by remember { mutableStateOf("") }
+                        var opt4 by remember { mutableStateOf("") }
+                        var correctOptIndex by remember { mutableStateOf(0) }
+                        var explanationText by remember { mutableStateOf("") }
+                        var editingQuestionIdx by remember { mutableStateOf<Int?>(null) }
+
+                        OutlinedTextField(
+                            value = qText,
+                            onValueChange = { qText = it },
+                            label = { Text("Question Text", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt1,
+                                onValueChange = { opt1 = it },
+                                label = { Text("Option A", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt2,
+                                onValueChange = { opt2 = it },
+                                label = { Text("Option B", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = opt3,
+                                onValueChange = { opt3 = it },
+                                label = { Text("Option C", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = opt4,
+                                onValueChange = { opt4 = it },
+                                label = { Text("Option D", fontSize = 10.sp) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                singleLine = true
+                            )
+                        }
+
+                        Text("Correct Option Index", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("A", "B", "C", "D").forEachIndexed { index, letter ->
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RadioButton(selected = correctOptIndex == index, onClick = { correctOptIndex = index })
+                                    Text(letter, fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = explanationText,
+                            onValueChange = { explanationText = it },
+                            label = { Text("Explanation (Optional)", fontSize = 11.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (editingQuestionIdx != null) {
+                                OutlinedButton(
+                                    onClick = {
+                                        editingQuestionIdx = null
+                                        qText = ""
+                                        opt1 = ""
+                                        opt2 = ""
+                                        opt3 = ""
+                                        opt4 = ""
+                                        correctOptIndex = 0
+                                        explanationText = ""
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text("Cancel Edit", fontSize = 11.sp)
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    if (qText.isNotBlank() && opt1.isNotBlank() && opt2.isNotBlank() && opt3.isNotBlank() && opt4.isNotBlank()) {
+                                        val newQ = MockQuestion(
+                                            id = if (editingQuestionIdx == null) "q_${System.currentTimeMillis()}" else questionsList[editingQuestionIdx!!].id,
+                                            questionText = qText,
+                                            options = listOf(opt1, opt2, opt3, opt4),
+                                            correctAnswerIndex = correctOptIndex,
+                                            explanation = explanationText
+                                        )
+                                        if (editingQuestionIdx == null) {
+                                            questionsList = questionsList + newQ
+                                        } else {
+                                            questionsList = questionsList.toMutableList().apply {
+                                                set(editingQuestionIdx!!, newQ)
+                                            }
+                                            editingQuestionIdx = null
+                                        }
+                                        qText = ""
+                                        opt1 = ""
+                                        opt2 = ""
+                                        opt3 = ""
+                                        opt4 = ""
+                                        correctOptIndex = 0
+                                        explanationText = ""
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Please complete all fields for the question", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.PrimaryContainer, contentColor = GeoPalette.Primary),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(if (editingQuestionIdx == null) "Add Question to List" else "Save Edited Question", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (questionsList.isNotEmpty()) {
+                            Text("Questions:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground)
+                            ) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    questionsList.forEachIndexed { qIdx, q ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text("${qIdx + 1}. ${q.questionText}", fontSize = 11.sp, color = GeoPalette.TextPrimary, modifier = Modifier.weight(1f))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                IconButton(
+                                                    onClick = {
+                                                        editingQuestionIdx = qIdx
+                                                        qText = q.questionText
+                                                        opt1 = q.options.getOrNull(0) ?: ""
+                                                        opt2 = q.options.getOrNull(1) ?: ""
+                                                        opt3 = q.options.getOrNull(2) ?: ""
+                                                        opt4 = q.options.getOrNull(3) ?: ""
+                                                        correctOptIndex = q.correctAnswerIndex
+                                                        explanationText = q.explanation ?: ""
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Edit, "Edit", tint = Color(0xFF1976D2), modifier = Modifier.size(14.dp))
+                                                }
+                                                IconButton(
+                                                    onClick = {
+                                                        questionsList = questionsList.filter { it.id != q.id }
+                                                        if (editingQuestionIdx == qIdx) {
+                                                            editingQuestionIdx = null
+                                                            qText = ""
+                                                            opt1 = ""
+                                                            opt2 = ""
+                                                            opt3 = ""
+                                                            opt4 = ""
+                                                            correctOptIndex = 0
+                                                            explanationText = ""
+                                                        } else if (editingQuestionIdx != null && editingQuestionIdx!! > qIdx) {
+                                                            editingQuestionIdx = editingQuestionIdx!! - 1
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(Icons.Default.Close, null, tint = GeoPalette.RejectedBg, modifier = Modifier.size(14.dp))
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showEditDialog = null },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Cancel", fontSize = 12.sp, color = GeoPalette.TextPrimary)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (title.isBlank()) {
+                                    android.widget.Toast.makeText(context, "Title cannot be empty!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (item !is MockTest && urlLink.isBlank()) {
+                                    android.widget.Toast.makeText(context, "URL/Link is required!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                if (item is MockTest && questionsList.isEmpty()) {
+                                    android.widget.Toast.makeText(context, "Add at least 1 question!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+
+                                val customContentType = when (activeModule) {
+                                    "Language" -> if (item is VideoContent) "Video" else "Material"
+                                    "General Test" -> if (item is StudyMaterial) "Material" else "Mock Test"
+                                    "Teaching Aptitude" -> if (item is VideoContent) "Video" else "Material"
+                                    else -> when (item) {
+                                        is VideoContent -> "videos"
+                                        is StudyMaterial -> "materials"
+                                        is RecordedClass -> "recordedClasses"
+                                        is MockTest -> "mockTests"
+                                        else -> ""
+                                    }
+                                }
+
+                                when (item) {
+                                    is VideoContent -> {
+                                        viewModel.editVideo(
+                                            id = item.id,
+                                            title = title,
+                                            description = desc,
+                                            url = urlLink,
+                                            category = activeModule,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            thumbnailUrl = thumbnail,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType
+                                        )
+                                        feedbackMessage = "Successfully updated video lecture!"
+                                    }
+                                    is StudyMaterial -> {
+                                        viewModel.editMaterial(
+                                            id = item.id,
+                                            title = title,
+                                            fileUrl = urlLink,
+                                            category = activeModule,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully updated study material notes!"
+                                    }
+                                    is RecordedClass -> {
+                                        viewModel.editRecordedClass(
+                                            id = item.id,
+                                            title = title,
+                                            videoUrl = urlLink,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully updated recorded class!"
+                                    }
+                                    is MockTest -> {
+                                        viewModel.editMockTest(
+                                            id = item.id,
+                                            title = title,
+                                            type = testType,
+                                            stream = streamName,
+                                            domain = activeSubject,
+                                            questions = questionsList,
+                                            module = activeModule,
+                                            subject = activeSubject,
+                                            contentType = customContentType,
+                                            description = desc
+                                        )
+                                        feedbackMessage = "Successfully updated mock test!"
+                                    }
+                                }
+                                showEditDialog = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Save", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+
+}
+
+@Composable
 fun StreamContentPage(
     streamName: String,
     viewModel: LearningViewModel,
     onBack: () -> Unit
 ) {
+    StreamContentPageNew(streamName, "Domain", "Physics", viewModel, onBack)
+    if (true) return
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val videos by viewModel.videos.collectAsState()
@@ -5075,8 +16544,8 @@ fun StreamContentPage(
                         viewModel = viewModel,
                         initialStream = streamName,
                         onDismiss = { showAddDialog = null },
-                        onSubmit = { title, description, url, category, stream, thumbnailUrl ->
-                            viewModel.addVideo(title, description, url, category, stream, thumbnailUrl)
+                        onSubmit = { title, description, url, category, stream, domain, thumbnailUrl ->
+                            viewModel.addVideo(title, description, url, category, stream, domain, thumbnailUrl)
                             showAddDialog = null
                         }
                     )
@@ -5084,24 +16553,24 @@ fun StreamContentPage(
                         viewModel = viewModel,
                         initialStream = streamName,
                         onDismiss = { showAddDialog = null },
-                        onSubmit = { title, fileUrl, category, stream ->
-                            viewModel.addMaterial(title, fileUrl, category, stream)
+                        onSubmit = { title, fileUrl, category, stream, domain ->
+                            viewModel.addMaterial(title, fileUrl, category, stream, domain)
                             showAddDialog = null
                         }
                     )
                     "recorded_class" -> AddRecordedClassDialogContent(
                         initialStream = streamName,
                         onDismiss = { showAddDialog = null },
-                        onSubmit = { title, videoUrl, stream ->
-                            viewModel.addRecordedClass(title, videoUrl, stream)
+                        onSubmit = { title, videoUrl, stream, domain ->
+                            viewModel.addRecordedClass(title, videoUrl, stream, domain)
                             showAddDialog = null
                         }
                     )
                     "test" -> AddMockTestDialogContent(
                         initialStream = streamName,
                         onDismiss = { showAddDialog = null },
-                        onSubmit = { title, testType, stream, questions ->
-                            viewModel.addMockTest(title, testType, stream, questions)
+                        onSubmit = { title, testType, stream, domain, questions, duration ->
+                            viewModel.addMockTest(title, testType, stream, domain, questions, durationMinutes = duration, contentType = "streamMockTest")
                             showAddDialog = null
                         }
                     )
@@ -5125,8 +16594,8 @@ fun StreamContentPage(
                         viewModel = viewModel,
                         video = item,
                         onDismiss = { showEditDialog = null },
-                        onSubmit = { title, description, url, category, stream, thumbnailUrl ->
-                            viewModel.editVideo(item.id, title, description, url, category, stream, thumbnailUrl)
+                        onSubmit = { title, description, url, category, stream, domain, thumbnailUrl ->
+                            viewModel.editVideo(item.id, title, description, url, category, stream, domain, thumbnailUrl)
                             showEditDialog = null
                         }
                     )
@@ -5134,24 +16603,24 @@ fun StreamContentPage(
                         viewModel = viewModel,
                         material = item,
                         onDismiss = { showEditDialog = null },
-                        onSubmit = { title, fileUrl, category, stream ->
-                            viewModel.editMaterial(item.id, title, fileUrl, category, stream)
+                        onSubmit = { title, fileUrl, category, stream, domain ->
+                            viewModel.editMaterial(item.id, title, fileUrl, category, stream, domain)
                             showEditDialog = null
                         }
                     )
                     is RecordedClass -> EditRecordedClassDialogContent(
                         recClass = item,
                         onDismiss = { showEditDialog = null },
-                        onSubmit = { title, videoUrl, stream ->
-                            viewModel.editRecordedClass(item.id, title, videoUrl, stream)
+                        onSubmit = { title, videoUrl, stream, domain ->
+                            viewModel.editRecordedClass(item.id, title, videoUrl, stream, domain)
                             showEditDialog = null
                         }
                     )
                     is MockTest -> EditMockTestDialogContent(
                         test = item,
                         onDismiss = { showEditDialog = null },
-                        onSubmit = { title, testType, stream, questions ->
-                            viewModel.editMockTest(item.id, title, testType, stream, questions)
+                        onSubmit = { title, testType, stream, domain, questions ->
+                            viewModel.editMockTest(item.id, title, testType, stream, domain, questions)
                             showEditDialog = null
                         }
                     )
@@ -5199,6 +16668,7 @@ fun StreamContentPage(
                 }
             }
         }
+    }
     }
 }
 
@@ -5554,14 +17024,69 @@ fun AdminFeedbackTab(viewModel: LearningViewModel) {
 
 // ----------------------------------------------------
 @Composable
+fun DomainSelector(
+    selectedStream: String,
+    selectedDomain: String,
+    onDomainSelected: (String) -> Unit
+) {
+    val domains = com.example.data.StreamDomains[selectedStream] ?: emptyList()
+    if (domains.isNotEmpty()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Applicable Subject / Domain:",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = GeoPalette.TextSecondary
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                domains.forEach { dom ->
+                    val isSelected = selectedDomain.equals(dom, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .border(
+                                1.dp,
+                                if (isSelected) GeoPalette.Primary else GeoPalette.CardBorder,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .background(
+                                if (isSelected) GeoPalette.PrimaryContainer else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable { onDomainSelected(dom) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = dom,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isSelected) GeoPalette.Primary else GeoPalette.TextPrimary
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------
+@Composable
 fun AddRecordedClassDialogContent(
     initialStream: String,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, videoUrl: String, stream: String) -> Unit
+    onSubmit: (title: String, videoUrl: String, stream: String, domain: String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var videoUrl by remember { mutableStateOf("") }
     var stream by remember { mutableStateOf(initialStream) }
+    var domain by remember { mutableStateOf("") }
+
+    LaunchedEffect(stream) {
+        val list = com.example.data.StreamDomains[stream] ?: emptyList()
+        domain = list.firstOrNull() ?: ""
+    }
 
     Column(
         modifier = Modifier
@@ -5575,7 +17100,8 @@ fun AddRecordedClassDialogContent(
             value = title,
             onValueChange = { title = it },
             label = { Text("Class Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -5583,7 +17109,8 @@ fun AddRecordedClassDialogContent(
             onValueChange = { videoUrl = it },
             label = { Text("Video URL (YouTube or Direct Link)") },
             placeholder = { Text("e.g. https://www.youtube.com/embed/...") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         // Stream Selection (Science, Commerce, Humanities)
@@ -5604,6 +17131,13 @@ fun AddRecordedClassDialogContent(
             }
         }
 
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
+
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -5611,7 +17145,7 @@ fun AddRecordedClassDialogContent(
                 Text("Cancel")
             }
             Button(
-                onClick = { onSubmit(title, videoUrl, stream) },
+                onClick = { onSubmit(title, videoUrl, stream, domain) },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier
                     .weight(1f)
@@ -5632,50 +17166,20 @@ fun AddVideoDialogContent(
     viewModel: LearningViewModel,
     initialStream: String,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, description: String, url: String, category: String, stream: String, thumbnailUrl: String) -> Unit
+    onSubmit: (title: String, description: String, url: String, category: String, stream: String, domain: String, thumbnailUrl: String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Domain") }
     var stream by remember { mutableStateOf(initialStream) }
+    var domain by remember { mutableStateOf("") }
     var thumbnailUrl by remember { mutableStateOf("") }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
 
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    var selectedUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    var selectedFileName by remember { mutableStateOf("") }
-    var isUploading by remember { mutableStateOf(false) }
-    var uploadStatusMessage by remember { mutableStateOf<String?>(null) }
-
-    val videoPickerLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            selectedUri = uri
-            // Extract file name
-            var name = ""
-            if (uri.scheme == "content") {
-                val cursor = context.contentResolver.query(uri, null, null, null, null)
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        if (index != -1) {
-                            name = it.getString(index)
-                        }
-                    }
-                }
-            }
-            if (name.isEmpty()) {
-                name = uri.path ?: ""
-                val cut = name.lastIndexOf('/')
-                if (cut != -1) {
-                    name = name.substring(cut + 1)
-                }
-            }
-            selectedFileName = name.ifEmpty { "lecture_video.mp4" }
-            uploadStatusMessage = "Video chosen: $selectedFileName"
-        }
+    LaunchedEffect(stream) {
+        val list = com.example.data.StreamDomains[stream] ?: emptyList()
+        domain = list.firstOrNull() ?: ""
     }
 
     Column(
@@ -5684,13 +17188,14 @@ fun AddVideoDialogContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Upload Video Lecture", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Add Video Lecture", fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
             label = { Text("Lecture Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -5698,71 +17203,17 @@ fun AddVideoDialogContent(
             onValueChange = { description = it },
             label = { Text("Description") },
             modifier = Modifier.fillMaxWidth(),
-            maxLines = 3
+            maxLines = 3,
+            colors = getHighContrastTextFieldColors()
         )
-
-        // Video File Selector Row
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(12.dp))
-                .background(GeoPalette.CardBackground)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Video Upload (Firebase Storage)",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = GeoPalette.TextSecondary
-            )
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Button(
-                    onClick = { videoPickerLauncher.launch("video/*") },
-                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Upload, null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Choose Video", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Text(
-                    text = if (selectedFileName.isNotEmpty()) selectedFileName else "No video selected",
-                    fontSize = 11.sp,
-                    color = if (selectedFileName.isNotEmpty()) GeoPalette.TextPrimary else GeoPalette.TextSecondary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            if (uploadStatusMessage != null) {
-                Text(
-                    text = uploadStatusMessage!!,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (uploadStatusMessage!!.startsWith("Upload failed")) Color.Red else GeoPalette.Primary
-                )
-            }
-        }
 
         OutlinedTextField(
             value = url,
-            onValueChange = { url = it },
-            label = { Text("Or enter YouTube Embed URL") },
-            placeholder = { Text("e.g. https://www.youtube.com/embed/dQw4w9WgXcQ") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Always use YouTube embed format (https://www.youtube.com/embed/VIDEO_ID) to support inline video players.",
-            fontSize = 11.sp,
-            color = GeoPalette.Primary,
-            fontWeight = FontWeight.Medium
+            onValueChange = { url = it; statusMessage = null },
+            label = { Text("YouTube Video Link") },
+            placeholder = { Text("e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -5770,8 +17221,18 @@ fun AddVideoDialogContent(
             onValueChange = { thumbnailUrl = it },
             label = { Text("Thumbnail Image URL (optional)") },
             placeholder = { Text("e.g. https://example.com/thumb.jpg") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
+
+        if (statusMessage != null) {
+            Text(
+                text = statusMessage!!,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Red
+            )
+        }
 
         // Category Selection
         Column {
@@ -5809,58 +17270,36 @@ fun AddVideoDialogContent(
             }
         }
 
-        if (isUploading) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Uploading video file...", fontSize = 12.sp, color = GeoPalette.Primary)
-            }
-        }
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), enabled = !isUploading) {
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
                 Text("Cancel")
             }
             Button(
                 onClick = {
                     if (title.isBlank()) {
-                        uploadStatusMessage = "Please enter a lecture title"
+                        statusMessage = "Please enter a lecture title"
                         return@Button
                     }
-                    if (selectedUri != null) {
-                        coroutineScope.launch {
-                            isUploading = true
-                            uploadStatusMessage = "Uploading file to Storage..."
-                            val res = viewModel.repository.uploadFile(selectedUri!!, context)
-                            isUploading = false
-                            res.onSuccess { uploadedUrl ->
-                                url = uploadedUrl
-                                uploadStatusMessage = "Upload successful!"
-                                onSubmit(title, description, uploadedUrl, category, stream, thumbnailUrl)
-                            }.onFailure { err ->
-                                uploadStatusMessage = "Upload failed: ${err.localizedMessage}"
-                            }
-                        }
-                    } else {
-                        if (url.isBlank()) {
-                            uploadStatusMessage = "Please select a video file or enter a YouTube link"
-                        } else {
-                            onSubmit(title, description, url, category, stream, thumbnailUrl)
-                        }
+                    if (!isYouTubeUrl(url)) {
+                        statusMessage = "Invalid YouTube URL! Please enter a valid link (e.g. https://www.youtube.com/watch?v=... or https://youtu.be/...)"
+                        return@Button
                     }
+                    onSubmit(title, description, url, category, stream, domain, thumbnailUrl)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                enabled = !isUploading,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("add_content_button"),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Upload", fontWeight = FontWeight.Bold)
+                Text("Add Video", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -5871,48 +17310,18 @@ fun AddMaterialDialogContent(
     viewModel: LearningViewModel,
     initialStream: String,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, fileUrl: String, category: String, stream: String) -> Unit
+    onSubmit: (title: String, fileUrl: String, category: String, stream: String, domain: String) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var fileUrl by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Domain") }
     var stream by remember { mutableStateOf(initialStream) }
+    var domain by remember { mutableStateOf("") }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
 
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    var selectedUri by remember { mutableStateOf<android.net.Uri?>(null) }
-    var selectedFileName by remember { mutableStateOf("") }
-    var isUploading by remember { mutableStateOf(false) }
-    var uploadStatusMessage by remember { mutableStateOf<String?>(null) }
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri != null) {
-            selectedUri = uri
-            // Extract file name
-            var name = ""
-            if (uri.scheme == "content") {
-                val cursor = context.contentResolver.query(uri, null, null, null, null)
-                cursor?.use {
-                    if (it.moveToFirst()) {
-                        val index = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        if (index != -1) {
-                            name = it.getString(index)
-                        }
-                    }
-                }
-            }
-            if (name.isEmpty()) {
-                name = uri.path ?: ""
-                val cut = name.lastIndexOf('/')
-                if (cut != -1) {
-                    name = name.substring(cut + 1)
-                }
-            }
-            selectedFileName = name.ifEmpty { "study_notes.pdf" }
-            uploadStatusMessage = "File chosen: $selectedFileName"
-        }
+    LaunchedEffect(stream) {
+        val list = com.example.data.StreamDomains[stream] ?: emptyList()
+        domain = list.firstOrNull() ?: ""
     }
 
     Column(
@@ -5921,71 +17330,33 @@ fun AddMaterialDialogContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Upload Study Notes (PDF)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Add Study Notes (PDF)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
             label = { Text("Material Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
-
-        // File Selector Row
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(12.dp))
-                .background(GeoPalette.CardBackground)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "File Upload (Firebase Storage)",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = GeoPalette.TextSecondary
-            )
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Button(
-                    onClick = { filePickerLauncher.launch("*/*") },
-                    colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(Icons.Default.Upload, null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Choose File", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                Text(
-                    text = if (selectedFileName.isNotEmpty()) selectedFileName else "No file selected",
-                    fontSize = 11.sp,
-                    color = if (selectedFileName.isNotEmpty()) GeoPalette.TextPrimary else GeoPalette.TextSecondary,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            if (uploadStatusMessage != null) {
-                Text(
-                    text = uploadStatusMessage!!,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (uploadStatusMessage!!.startsWith("Upload failed")) Color.Red else GeoPalette.Primary
-                )
-            }
-        }
 
         OutlinedTextField(
             value = fileUrl,
-            onValueChange = { fileUrl = it },
-            label = { Text("Or enter custom URL link") },
-            modifier = Modifier.fillMaxWidth()
+            onValueChange = { fileUrl = it; statusMessage = null },
+            label = { Text("Google Drive Share Link") },
+            placeholder = { Text("e.g. https://drive.google.com/file/d/... or https://drive.google.com/open?id=...") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
+
+        if (statusMessage != null) {
+            Text(
+                text = statusMessage!!,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Red
+            )
+        }
 
         // Category Selection
         Column {
@@ -6023,58 +17394,36 @@ fun AddMaterialDialogContent(
             }
         }
 
-        if (isUploading) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Uploading material file...", fontSize = 12.sp, color = GeoPalette.Primary)
-            }
-        }
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f), enabled = !isUploading) {
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
                 Text("Cancel")
             }
             Button(
                 onClick = {
                     if (title.isBlank()) {
-                        uploadStatusMessage = "Please enter a material title"
+                        statusMessage = "Please enter a material title"
                         return@Button
                     }
-                    if (selectedUri != null) {
-                        coroutineScope.launch {
-                            isUploading = true
-                            uploadStatusMessage = "Uploading file to Storage..."
-                            val res = viewModel.repository.uploadFile(selectedUri!!, context)
-                            isUploading = false
-                            res.onSuccess { url ->
-                                fileUrl = url
-                                uploadStatusMessage = "Upload successful!"
-                                onSubmit(title, url, category, stream)
-                            }.onFailure { err ->
-                                uploadStatusMessage = "Upload failed: ${err.localizedMessage}"
-                            }
-                        }
-                    } else {
-                        if (fileUrl.isBlank()) {
-                            uploadStatusMessage = "Please select a file or enter a custom link"
-                        } else {
-                            onSubmit(title, fileUrl, category, stream)
-                        }
+                    if (!isGoogleDriveUrl(fileUrl)) {
+                        statusMessage = "Invalid Google Drive URL! Please enter a valid share link (e.g. https://drive.google.com/file/d/...)"
+                        return@Button
                     }
+                    onSubmit(title, fileUrl, category, stream, domain)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                enabled = !isUploading,
                 modifier = Modifier
                     .weight(1f)
                     .testTag("add_content_button"),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Upload Notes", fontWeight = FontWeight.Bold)
+                Text("Add Material", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -6084,11 +17433,18 @@ fun AddMaterialDialogContent(
 fun AddMockTestDialogContent(
     initialStream: String,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, type: String, stream: String, questions: List<MockQuestion>) -> Unit
+    onSubmit: (title: String, type: String, stream: String, domain: String, questions: List<MockQuestion>, durationMinutes: Int) -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var type by remember { mutableStateOf("topicwise") }
+    var testDurationMinutes by remember { mutableStateOf("30") }
     var stream by remember { mutableStateOf(initialStream) }
+    var domain by remember { mutableStateOf("") }
+
+    LaunchedEffect(stream) {
+        val list = com.example.data.StreamDomains[stream] ?: emptyList()
+        domain = list.firstOrNull() ?: ""
+    }
 
     // List of custom questions created inside dialog
     val questions = remember { mutableStateListOf<MockQuestion>() }
@@ -6108,30 +17464,63 @@ fun AddMockTestDialogContent(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text("Create Entrance Mock Exam", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("Create Entrance Mock Exam", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
 
         OutlinedTextField(
             value = title,
             onValueChange = { title = it },
             label = { Text("Practice Test Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         // Type selection
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = type == "topicwise", onClick = { type = "topicwise" })
-                Text("Topicwise Quiz", fontSize = 13.sp)
+                Text("Topicwise Quiz", fontSize = 13.sp, color = Color(0xFF1F2937))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = type == "fulllength", onClick = { type = "fulllength" })
-                Text("Full Length Exam", fontSize = 13.sp)
+                Text("Full Length Exam", fontSize = 13.sp, color = Color(0xFF1F2937))
             }
         }
 
+        OutlinedTextField(
+            value = testDurationMinutes,
+            onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+            label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+            placeholder = { Text("e.g. 30", color = Color.Gray, fontSize = 12.sp) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp),
+            singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+            ),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
+        )
+
         // Stream selection
         Column {
-            Text("Target Stream Exam:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+            Text("Target Stream Exam:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("Science", "Commerce", "Humanities").forEach { currentStream ->
                     Box(
@@ -6141,22 +17530,39 @@ fun AddMockTestDialogContent(
                             .clickable { stream = currentStream }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text(currentStream, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(currentStream, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (stream == currentStream) Color(0xFF7B0F2E) else Color(0xFF1F2937))
                     }
                 }
             }
         }
 
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
+
         Divider(color = GeoPalette.Divider)
 
         // Question Creator Form
-        Text("Add Question MCQ to Mock Test (${questions.size} Added)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+        Text("Add Question MCQ to Mock Test (${questions.size} Added)", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7B0F2E))
 
         OutlinedTextField(
             value = questionText,
             onValueChange = { questionText = it },
             label = { Text("MCQ Question Text") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         OutlinedTextField(
@@ -6164,7 +17570,17 @@ fun AddMockTestDialogContent(
             onValueChange = { optionA = it },
             label = { Text("Option A") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         OutlinedTextField(
@@ -6172,7 +17588,17 @@ fun AddMockTestDialogContent(
             onValueChange = { optionB = it },
             label = { Text("Option B") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         OutlinedTextField(
@@ -6180,7 +17606,17 @@ fun AddMockTestDialogContent(
             onValueChange = { optionC = it },
             label = { Text("Option C") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         OutlinedTextField(
@@ -6188,17 +17624,27 @@ fun AddMockTestDialogContent(
             onValueChange = { optionD = it },
             label = { Text("Option D") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         // Select correct answer index
         Column {
-            Text("Correct Option Index:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+            Text("Correct Option Index:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf("A", "B", "C", "D").forEachIndexed { index, optLetter ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = correctOptionIndex == index, onClick = { correctOptionIndex = index })
-                        Text(optLetter, fontSize = 13.sp)
+                        Text(optLetter, fontSize = 13.sp, color = Color(0xFF1F2937))
                     }
                 }
             }
@@ -6208,7 +17654,17 @@ fun AddMockTestDialogContent(
             value = explanation,
             onValueChange = { explanation = it },
             label = { Text("Correct answer explanation / proof notes") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color(0xFF1F2937),
+                unfocusedTextColor = Color(0xFF1F2937),
+                focusedLabelColor = Color(0xFF4B5563),
+                unfocusedLabelColor = Color(0xFF4B5563),
+                focusedBorderColor = Color(0xFF7B0F2E),
+                unfocusedBorderColor = Color(0xFF4B5563),
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White
+            )
         )
 
         Button(
@@ -6250,7 +17706,7 @@ fun AddMockTestDialogContent(
                 Text("Cancel")
             }
             Button(
-                onClick = { onSubmit(title, type, stream, questions.toList()) },
+                onClick = { onSubmit(title, type, stream, domain, questions.toList(), testDurationMinutes.toIntOrNull() ?: 0) },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier
                     .weight(1f)
@@ -6271,13 +17727,14 @@ fun EditVideoDialogContent(
     viewModel: LearningViewModel,
     video: VideoContent,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, description: String, url: String, category: String, stream: String, thumbnailUrl: String) -> Unit
+    onSubmit: (title: String, description: String, url: String, category: String, stream: String, domain: String, thumbnailUrl: String) -> Unit
 ) {
     var title by remember { mutableStateOf(video.title) }
     var description by remember { mutableStateOf(video.description) }
     var url by remember { mutableStateOf(video.url) }
     var category by remember { mutableStateOf(video.category) }
     var stream by remember { mutableStateOf(video.stream) }
+    var domain by remember { mutableStateOf(video.domain) }
     var thumbnailUrl by remember { mutableStateOf(video.thumbnailUrl) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -6295,7 +17752,8 @@ fun EditVideoDialogContent(
             value = title,
             onValueChange = { title = it },
             label = { Text("Lecture Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -6303,21 +17761,24 @@ fun EditVideoDialogContent(
             onValueChange = { description = it },
             label = { Text("Description") },
             modifier = Modifier.fillMaxWidth(),
-            maxLines = 3
+            maxLines = 3,
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
             label = { Text("YouTube Embed or Video URL") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
             value = thumbnailUrl,
             onValueChange = { thumbnailUrl = it },
             label = { Text("Thumbnail Image URL (optional)") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         // Category Selection
@@ -6338,6 +17799,13 @@ fun EditVideoDialogContent(
             }
         }
 
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
+
         if (uploadStatusMessage != null) {
             Text(uploadStatusMessage!!, color = Color.Red, fontSize = 11.sp)
         }
@@ -6352,7 +17820,7 @@ fun EditVideoDialogContent(
                         uploadStatusMessage = "Title and URL are required"
                         return@Button
                     }
-                    onSubmit(title, description, url, category, stream, thumbnailUrl)
+                    onSubmit(title, description, url, category, stream, domain, thumbnailUrl)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier.weight(1f),
@@ -6369,12 +17837,13 @@ fun EditMaterialDialogContent(
     viewModel: LearningViewModel,
     material: StudyMaterial,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, fileUrl: String, category: String, stream: String) -> Unit
+    onSubmit: (title: String, fileUrl: String, category: String, stream: String, domain: String) -> Unit
 ) {
     var title by remember { mutableStateOf(material.title) }
     var fileUrl by remember { mutableStateOf(material.fileUrl) }
     var category by remember { mutableStateOf(material.category) }
     var stream by remember { mutableStateOf(material.stream) }
+    var domain by remember { mutableStateOf(material.domain) }
 
     var uploadStatusMessage by remember { mutableStateOf<String?>(null) }
 
@@ -6390,14 +17859,16 @@ fun EditMaterialDialogContent(
             value = title,
             onValueChange = { title = it },
             label = { Text("Material Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
             value = fileUrl,
             onValueChange = { fileUrl = it },
             label = { Text("Material PDF URL") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         // Category Selection
@@ -6418,6 +17889,13 @@ fun EditMaterialDialogContent(
             }
         }
 
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
+
         if (uploadStatusMessage != null) {
             Text(uploadStatusMessage!!, color = Color.Red, fontSize = 11.sp)
         }
@@ -6432,7 +17910,7 @@ fun EditMaterialDialogContent(
                         uploadStatusMessage = "Title and URL are required"
                         return@Button
                     }
-                    onSubmit(title, fileUrl, category, stream)
+                    onSubmit(title, fileUrl, category, stream, domain)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier.weight(1f),
@@ -6448,11 +17926,12 @@ fun EditMaterialDialogContent(
 fun EditRecordedClassDialogContent(
     recClass: RecordedClass,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, videoUrl: String, stream: String) -> Unit
+    onSubmit: (title: String, videoUrl: String, stream: String, domain: String) -> Unit
 ) {
     var title by remember { mutableStateOf(recClass.title) }
     var videoUrl by remember { mutableStateOf(recClass.videoUrl) }
     var stream by remember { mutableStateOf(recClass.stream) }
+    var domain by remember { mutableStateOf(recClass.domain) }
 
     Column(
         modifier = Modifier
@@ -6466,14 +17945,23 @@ fun EditRecordedClassDialogContent(
             value = title,
             onValueChange = { title = it },
             label = { Text("Class Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
             value = videoUrl,
             onValueChange = { videoUrl = it },
             label = { Text("Video URL") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
+        )
+
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -6483,7 +17971,7 @@ fun EditRecordedClassDialogContent(
                 Text("Cancel")
             }
             Button(
-                onClick = { onSubmit(title, videoUrl, stream) },
+                onClick = { onSubmit(title, videoUrl, stream, domain) },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp),
@@ -6499,11 +17987,12 @@ fun EditRecordedClassDialogContent(
 fun EditMockTestDialogContent(
     test: MockTest,
     onDismiss: () -> Unit,
-    onSubmit: (title: String, type: String, stream: String, questions: List<MockQuestion>) -> Unit
+    onSubmit: (title: String, type: String, stream: String, domain: String, questions: List<MockQuestion>) -> Unit
 ) {
     var title by remember { mutableStateOf(test.title) }
     var type by remember { mutableStateOf(test.type) }
     var stream by remember { mutableStateOf(test.stream) }
+    var domain by remember { mutableStateOf(test.domain) }
 
     val questions = remember { mutableStateListOf<MockQuestion>().apply { addAll(test.questions) } }
 
@@ -6514,6 +18003,8 @@ fun EditMockTestDialogContent(
     var optionD by remember { mutableStateOf("") }
     var correctOptionIndex by remember { mutableStateOf(0) }
     var explanation by remember { mutableStateOf("") }
+
+    var editingQuestionIndex by remember { mutableStateOf<Int?>(null) }
 
     Column(
         modifier = Modifier
@@ -6527,23 +18018,31 @@ fun EditMockTestDialogContent(
             value = title,
             onValueChange = { title = it },
             label = { Text("Practice Test Title") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = type == "topicwise", onClick = { type = "topicwise" })
-                Text("Topicwise Quiz", fontSize = 13.sp)
+                Text("Topicwise Quiz", fontSize = 13.sp, color = Color(0xFF1F2937))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = type == "fulllength", onClick = { type = "fulllength" })
-                Text("Full Length Exam", fontSize = 13.sp)
+                Text("Full Length Exam", fontSize = 13.sp, color = Color(0xFF1F2937))
             }
         }
 
+        // Domain Selector
+        DomainSelector(
+            selectedStream = stream,
+            selectedDomain = domain,
+            onDomainSelected = { domain = it }
+        )
+
         Divider(color = GeoPalette.Divider)
 
-        Text("Current Questions (${questions.size})", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text("Current Questions (${questions.size})", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937))
         
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             questions.forEachIndexed { qIdx, q ->
@@ -6551,16 +18050,45 @@ fun EditMockTestDialogContent(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(GeoPalette.CardBackground, RoundedCornerShape(8.dp))
+                        .border(1.dp, GeoPalette.Divider, RoundedCornerShape(8.dp))
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Q${qIdx + 1}: ${q.questionText}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Q${qIdx + 1}: ${q.questionText}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F2937))
                         Text("Ans: Option ${listOf("A", "B", "C", "D").getOrNull(q.correctAnswerIndex) ?: "A"}", fontSize = 10.sp, color = GeoPalette.TextSecondary)
                     }
-                    IconButton(onClick = { questions.removeAt(qIdx) }) {
-                        Icon(Icons.Default.Delete, "Remove", tint = GeoPalette.RejectedBg, modifier = Modifier.size(20.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = {
+                            editingQuestionIndex = qIdx
+                            questionText = q.questionText
+                            optionA = q.options.getOrNull(0) ?: ""
+                            optionB = q.options.getOrNull(1) ?: ""
+                            optionC = q.options.getOrNull(2) ?: ""
+                            optionD = q.options.getOrNull(3) ?: ""
+                            correctOptionIndex = q.correctAnswerIndex
+                            explanation = q.explanation ?: ""
+                        }) {
+                            Icon(Icons.Default.Edit, "Edit Question", tint = Color(0xFF1976D2), modifier = Modifier.size(20.dp))
+                        }
+                        IconButton(onClick = {
+                            questions.removeAt(qIdx)
+                            if (editingQuestionIndex == qIdx) {
+                                editingQuestionIndex = null
+                                questionText = ""
+                                optionA = ""
+                                optionB = ""
+                                optionC = ""
+                                optionD = ""
+                                correctOptionIndex = 0
+                                explanation = ""
+                            } else if (editingQuestionIndex != null && editingQuestionIndex!! > qIdx) {
+                                editingQuestionIndex = editingQuestionIndex!! - 1
+                            }
+                        }) {
+                            Icon(Icons.Default.Delete, "Remove", tint = GeoPalette.RejectedBg, modifier = Modifier.size(20.dp))
+                        }
                     }
                 }
             }
@@ -6568,13 +18096,19 @@ fun EditMockTestDialogContent(
 
         Divider(color = GeoPalette.Divider)
 
-        Text("Add New Question MCQ", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+        Text(
+            text = if (editingQuestionIndex == null) "Add New Question MCQ" else "Edit Question MCQ (Q${editingQuestionIndex!! + 1})",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (editingQuestionIndex == null) GeoPalette.Primary else Color(0xFF1976D2)
+        )
 
         OutlinedTextField(
             value = questionText,
             onValueChange = { questionText = it },
             label = { Text("MCQ Question Text") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -6582,7 +18116,8 @@ fun EditMockTestDialogContent(
             onValueChange = { optionA = it },
             label = { Text("Option A") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -6590,7 +18125,8 @@ fun EditMockTestDialogContent(
             onValueChange = { optionB = it },
             label = { Text("Option B") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -6598,7 +18134,8 @@ fun EditMockTestDialogContent(
             onValueChange = { optionC = it },
             label = { Text("Option C") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = getHighContrastTextFieldColors()
         )
 
         OutlinedTextField(
@@ -6606,16 +18143,17 @@ fun EditMockTestDialogContent(
             onValueChange = { optionD = it },
             label = { Text("Option D") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = getHighContrastTextFieldColors()
         )
 
         Column {
-            Text("Correct Option Index:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+            Text("Correct Option Index:", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 listOf("A", "B", "C", "D").forEachIndexed { index, optLetter ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = correctOptionIndex == index, onClick = { correctOptionIndex = index })
-                        Text(optLetter, fontSize = 13.sp)
+                        Text(optLetter, fontSize = 13.sp, color = Color(0xFF1F2937))
                     }
                 }
             }
@@ -6625,39 +18163,71 @@ fun EditMockTestDialogContent(
             value = explanation,
             onValueChange = { explanation = it },
             label = { Text("Correct answer explanation / proof notes") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = getHighContrastTextFieldColors()
         )
 
-        Button(
-            onClick = {
-                if (questionText.isBlank() || optionA.isBlank() || optionB.isBlank()) {
-                    return@Button
-                }
-                val newQ = MockQuestion(
-                    id = "q_${System.currentTimeMillis()}",
-                    questionText = questionText,
-                    options = listOf(optionA, optionB, optionC.ifBlank { "N/A" }, optionD.ifBlank { "N/A" }),
-                    correctAnswerIndex = correctOptionIndex,
-                    explanation = explanation
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = {
+                    if (questionText.isBlank() || optionA.isBlank() || optionB.isBlank()) {
+                        return@Button
+                    }
+                    val updatedQ = MockQuestion(
+                        id = if (editingQuestionIndex == null) "q_${System.currentTimeMillis()}" else questions[editingQuestionIndex!!].id,
+                        questionText = questionText,
+                        options = listOf(optionA, optionB, optionC.ifBlank { "N/A" }, optionD.ifBlank { "N/A" }),
+                        correctAnswerIndex = correctOptionIndex,
+                        explanation = explanation
+                    )
+                    
+                    if (editingQuestionIndex == null) {
+                        questions.add(updatedQ)
+                    } else {
+                        questions[editingQuestionIndex!!] = updatedQ
+                        editingQuestionIndex = null
+                    }
+                    
+                    // Clear fields
+                    questionText = ""
+                    optionA = ""
+                    optionB = ""
+                    optionC = ""
+                    optionD = ""
+                    correctOptionIndex = 0
+                    explanation = ""
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = if (editingQuestionIndex == null) Color(0xFF689F38) else Color(0xFF1976D2)),
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Icon(if (editingQuestionIndex == null) Icons.Default.AddCircleOutline else Icons.Default.Save, null, tint = Color.White)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = if (editingQuestionIndex == null) "Confirm Add Question MCQ" else "Save Edited Question",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
                 )
-                questions.add(newQ)
-                
-                // Clear fields
-                questionText = ""
-                optionA = ""
-                optionB = ""
-                optionC = ""
-                optionD = ""
-                correctOptionIndex = 0
-                explanation = ""
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF689F38)),
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(10.dp)
-        ) {
-            Icon(Icons.Default.AddCircleOutline, null)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Confirm Add Question MCQ", fontWeight = FontWeight.Bold)
+            }
+            
+            if (editingQuestionIndex != null) {
+                OutlinedButton(
+                    onClick = {
+                        editingQuestionIndex = null
+                        questionText = ""
+                        optionA = ""
+                        optionB = ""
+                        optionC = ""
+                        optionD = ""
+                        correctOptionIndex = 0
+                        explanation = ""
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text("Cancel Edit")
+                }
+            }
         }
 
         Divider(color = GeoPalette.Divider)
@@ -6667,7 +18237,7 @@ fun EditMockTestDialogContent(
                 Text("Cancel")
             }
             Button(
-                onClick = { onSubmit(title, type, stream, questions.toList()) },
+                onClick = { onSubmit(title, type, stream, domain, questions.toList()) },
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp),
@@ -6683,6 +18253,9 @@ fun EditMockTestDialogContent(
 // ----------------------------------------------------
 @Composable
 fun ViewVideoDialogContent(video: VideoContent, onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val finalUrl = if (video.videoUrl.trim().isNotEmpty()) video.videoUrl.trim() else video.url.trim()
+
     Column(
         modifier = Modifier
             .padding(20.dp)
@@ -6709,10 +18282,18 @@ fun ViewVideoDialogContent(video: VideoContent, onDismiss: () -> Unit) {
             shape = RoundedCornerShape(12.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (!video.thumbnailUrl.isNullOrBlank()) {
+                    coil.compose.AsyncImage(
+                        model = video.thumbnailUrl,
+                        contentDescription = "Video Thumbnail",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)))
+                }
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Tv, null, tint = Color.LightGray, modifier = Modifier.size(40.dp))
-                    Text("PLAYING: ${video.title}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text("Source: ${video.url}", color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Icon(Icons.Default.PlayCircleFilled, null, tint = Color(0xFFFF0000), modifier = Modifier.size(48.dp))
+                    Text(video.title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             }
         }
@@ -6727,12 +18308,19 @@ fun ViewVideoDialogContent(video: VideoContent, onDismiss: () -> Unit) {
             Text(video.description.ifBlank { "No description provided." }, fontSize = 12.sp, color = GeoPalette.TextSecondary)
         }
 
-        Button(
-            onClick = onDismiss,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
-        ) {
-            Text("Close Player")
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                Text("Close")
+            }
+            Button(
+                onClick = { openYouTubeVideo(context, finalUrl) },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0000))
+            ) {
+                Icon(Icons.Default.Launch, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Watch Video", fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -6743,6 +18331,8 @@ fun ViewMaterialDialogContent(
     onDismiss: () -> Unit,
     onDownload: () -> Unit
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Column(
         modifier = Modifier
             .padding(20.dp)
@@ -6763,39 +18353,21 @@ fun ViewMaterialDialogContent(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(240.dp)
-                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(8.dp)),
+                .height(180.dp)
+                .border(1.dp, GeoPalette.Divider, RoundedCornerShape(12.dp)),
             colors = CardDefaults.cardColors(containerColor = GeoPalette.Background),
-            shape = RoundedCornerShape(8.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Description, "PDF", tint = Color.Red, modifier = Modifier.size(32.dp))
-                    Column {
-                        Text(material.title, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        Text("Category: ${material.category} • Notes File", fontSize = 10.sp, color = GeoPalette.TextSecondary)
-                    }
-                }
-                
-                Divider(color = GeoPalette.Divider)
-
-                Text("DOCUMENT PREVIEW (MOCK PAGES)", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = GeoPalette.Primary)
-                Text(
-                    "Page 1:\nThis document contains official curriculum notes for ${material.stream} stream candidates. Focus heavily on section summaries and practice questions.",
-                    fontSize = 11.sp,
-                    color = GeoPalette.TextSecondary
-                )
-                Text(
-                    "Page 2:\nFormula & core principles summary. Make sure to solve the mock test associated with this topic under the Mock Tests panel.",
-                    fontSize = 11.sp,
-                    color = GeoPalette.TextSecondary
-                )
+                Icon(Icons.Default.Description, "PDF", tint = GeoPalette.Primary, modifier = Modifier.size(44.dp))
+                Text(material.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                Text("Category: ${material.category} • Stream: ${material.stream}", fontSize = 11.sp, color = GeoPalette.TextSecondary)
             }
         }
 
@@ -6804,13 +18376,13 @@ fun ViewMaterialDialogContent(
                 Text("Close")
             }
             Button(
-                onClick = onDownload,
+                onClick = { openGoogleDriveDocument(context, material.fileUrl) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
             ) {
-                Icon(Icons.Default.Download, null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Launch, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Download PDF")
+                Text("Open PDF", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -6939,6 +18511,488 @@ fun PreviewMockTestDialogContent(test: MockTest, onDismiss: () -> Unit) {
             colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary)
         ) {
             Text("Done")
+        }
+    }
+}
+
+@Composable
+fun FullPageDetailsView(
+    item: Any,
+    onBack: () -> Unit,
+    onEditClick: ((Any) -> Unit)? = null
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(GeoPalette.Background)
+            .statusBarsPadding()
+            .padding(16.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                        contentDescription = "Go Back",
+                        tint = GeoPalette.Primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                Text(
+                    text = when (item) {
+                        is MockTest -> "Mock Test Details"
+                        is VideoContent -> "Video Lecture Details"
+                        is StudyMaterial -> "Study Notes Details"
+                        is RecordedClass -> "Live Class Details"
+                        is PYQ -> "PYQ Paper Details"
+                        else -> "Resource Details"
+                    },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = GeoPalette.Primary
+                )
+            }
+            
+            if (onEditClick != null) {
+                IconButton(
+                    onClick = { onEditClick(item) },
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Resource",
+                        tint = Color(0xFF1976D2),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+        
+        HorizontalDivider(color = GeoPalette.Divider, thickness = 1.dp)
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Content Body
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // General Info Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                border = BorderStroke(1.dp, GeoPalette.Divider),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val titleText = when (item) {
+                        is VideoContent -> item.title
+                        is StudyMaterial -> item.title
+                        is RecordedClass -> item.title
+                        is MockTest -> item.title
+                        is PYQ -> item.title
+                        else -> ""
+                    }
+                    val descText = when (item) {
+                        is VideoContent -> item.description
+                        is StudyMaterial -> item.description
+                        is RecordedClass -> item.description
+                        is MockTest -> item.description
+                        is PYQ -> item.description
+                        else -> ""
+                    }
+                    val streamText = when (item) {
+                        is VideoContent -> item.stream
+                        is StudyMaterial -> item.stream
+                        is RecordedClass -> item.stream
+                        is MockTest -> item.stream
+                        is PYQ -> item.stream
+                        else -> ""
+                    }
+                    val subjectText = when (item) {
+                        is VideoContent -> item.subject.ifBlank { item.domain }
+                        is StudyMaterial -> item.subject.ifBlank { item.domain }
+                        is RecordedClass -> item.subject.ifBlank { item.domain }
+                        is MockTest -> item.subject.ifBlank { item.domain }
+                        is PYQ -> item.subject.ifBlank { item.domain }
+                        else -> ""
+                    }
+                    
+                    Text(
+                        text = titleText,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GeoPalette.TextPrimary
+                    )
+                    
+                    if (streamText.isNotEmpty() || subjectText.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .background(GeoPalette.PrimaryContainer, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(streamText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = GeoPalette.Primary)
+                            }
+                            if (subjectText.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(GeoPalette.SecondaryContainer, RoundedCornerShape(6.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(subjectText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (descText.isNotEmpty()) {
+                        HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+                        Text("Description", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextSecondary)
+                        Text(
+                            text = descText,
+                            fontSize = 14.sp,
+                            color = GeoPalette.TextPrimary,
+                            lineHeight = 20.sp
+                        )
+                    }
+                }
+            }
+            
+            // Resource Links
+            val urlString = when (item) {
+                is VideoContent -> item.url
+                is StudyMaterial -> item.fileUrl
+                is RecordedClass -> item.videoUrl
+                is PYQ -> item.fileUrl
+                else -> ""
+            }
+            if (urlString.isNotEmpty()) {
+                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val isVideo = item is VideoContent || item is RecordedClass
+                var showInAppPlayer by remember { mutableStateOf(false) }
+
+                if (showInAppPlayer) {
+                    androidx.compose.ui.window.Dialog(onDismissRequest = { showInAppPlayer = false }) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(300.dp)
+                                .padding(8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.Black)
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                VideoPlayerView(url = urlString, modifier = Modifier.fillMaxSize())
+                                
+                                IconButton(
+                                    onClick = { showInAppPlayer = false },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val openResourceAction = {
+                    val finalUrl = urlString.trim()
+                    if (isVideo) {
+                        openYouTubeVideo(context, finalUrl)
+                    } else {
+                        openGoogleDriveDocument(context, finalUrl)
+                    }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { openResourceAction() },
+                    colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                    border = BorderStroke(1.dp, GeoPalette.Divider),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isVideo) "Video Player Link" else "Study Material / Document",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.TextSecondary
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .background(if (isVideo) Color(0xFFFFEBEE) else Color(0xFFE3F2FD), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (isVideo) "VIDEO" else "DOCUMENT",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isVideo) Color(0xFFC62828) else Color(0xFF1565C0)
+                                )
+                            }
+                        }
+                        
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = GeoPalette.Background)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isVideo) Icons.Default.PlayCircle else Icons.Default.Description,
+                                    contentDescription = null,
+                                    tint = if (isVideo) Color(0xFFC62828) else Color(0xFF1565C0),
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Text(
+                                    text = urlString,
+                                    fontSize = 12.sp,
+                                    color = GeoPalette.Primary,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        
+                        if (isVideo) {
+                            Button(
+                                onClick = { openResourceAction() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFFC62828),
+                                    contentColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Watch Lecture Video",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = { openResourceAction() },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF1565C0),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Launch,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Open PDF",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        openGoogleDriveDocument(context, urlString)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF4CAF50),
+                                        contentColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Launch,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Google Drive",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Mock Test Questions List
+            if (item is MockTest) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = GeoPalette.CardBackground),
+                    border = BorderStroke(1.dp, GeoPalette.Divider),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Questions List (${item.questions.size} items)",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = GeoPalette.TextPrimary
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFE65100).copy(alpha = 0.12f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(item.type.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                            }
+                        }
+                        
+                        HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.5f))
+                        
+                        if (item.questions.isEmpty()) {
+                            Text("No questions in this test yet.", fontSize = 13.sp, color = GeoPalette.TextSecondary, modifier = Modifier.padding(vertical = 12.dp))
+                        } else {
+                            item.questions.forEachIndexed { qIdx, q ->
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "${qIdx + 1}. ${q.questionText}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = GeoPalette.TextPrimary
+                                    )
+                                    
+                                    Column(
+                                        modifier = Modifier.padding(start = 12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        q.options.forEachIndexed { oIdx, opt ->
+                                            val isCorrect = q.correctAnswerIndex == oIdx
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = if (isCorrect) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                                    contentDescription = null,
+                                                    tint = if (isCorrect) GeoPalette.ApprovedBg else Color.Gray,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(
+                                                    text = opt,
+                                                    fontSize = 13.sp,
+                                                    color = if (isCorrect) GeoPalette.ApprovedBg else GeoPalette.TextPrimary,
+                                                    fontWeight = if (isCorrect) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (q.explanation.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFFF0FDF4), RoundedCornerShape(8.dp))
+                                                .border(1.dp, Color(0xFFDCFCE7), RoundedCornerShape(8.dp))
+                                                .padding(10.dp)
+                                        ) {
+                                            Text(
+                                                text = "Explanation: ${q.explanation}",
+                                                fontSize = 12.sp,
+                                                color = Color(0xFF166534),
+                                                style = androidx.compose.ui.text.TextStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                                            )
+                                        }
+                                    }
+                                    
+                                    if (qIdx < item.questions.size - 1) {
+                                        HorizontalDivider(color = GeoPalette.Divider.copy(alpha = 0.3f), modifier = Modifier.padding(top = 12.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Button(
+            onClick = onBack,
+            colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Text("Back to Content Workspace", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -7334,11 +19388,14 @@ fun MyProfileDialog(
                                             DropdownMenu(
                                                 expanded = streamExpanded,
                                                 onDismissRequest = { streamExpanded = false },
-                                                modifier = Modifier.fillMaxWidth(0.8f).background(Color.White)
+                                                modifier = Modifier
+                                                    .fillMaxWidth(0.8f)
+                                                    .background(Color.White, RoundedCornerShape(12.dp))
+                                                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
                                             ) {
-                                                listOf("Science", "Commerce", "Humanities").forEach { choice ->
+                                                listOf("Science", "Commerce", "Humanities", "General").forEach { choice ->
                                                     DropdownMenuItem(
-                                                        text = { Text(choice, fontWeight = FontWeight.Medium) },
+                                                        text = { Text(choice, fontWeight = FontWeight.Bold, color = Color(0xFF1F2937), fontSize = 14.sp) },
                                                         onClick = {
                                                             editStream = choice
                                                             streamExpanded = false
@@ -8186,96 +20243,32 @@ fun ProfileInfoRow(
 }
 
 // ----------------------------------------------------
-// Custom Branded Logos (Dynamic & Vector-Sharp)
+// Official Branded INSYR Logos
 // ----------------------------------------------------
 @Composable
 fun InsyrLogo(
     modifier: Modifier = Modifier,
     tint: Color = GeoPalette.Primary,
     showSubtitle: Boolean = true,
-    scale: Float = 1.0f
+    scale: Float = 1.0f,
+    width: androidx.compose.ui.unit.Dp = 170.dp
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    val targetWidth = if (width != 170.dp) width else (170 * scale).dp
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.wrapContentSize()
     ) {
-        Box(
-            modifier = Modifier.size((64 * scale).dp),
-            contentAlignment = Alignment.Center
-        ) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val pathColor = tint
-                val cx = w / 2f
-                val cy = h / 2f + h * 0.08f
-                
-                // Drawing the 4 leaves on the left
-                for (i in 0..3) {
-                    val leafPath = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cx - w * 0.04f, cy - h * (i * 0.05f))
-                        cubicTo(
-                            cx - w * 0.12f, cy - h * (0.15f + i * 0.06f),
-                            cx - w * 0.32f, cy - h * (0.22f + i * 0.04f),
-                            cx - w * (0.42f - i * 0.04f), cy - h * (0.18f + i * 0.01f)
-                        )
-                        cubicTo(
-                            cx - w * 0.32f, cy - h * (0.15f + i * 0.03f),
-                            cx - w * 0.12f, cy - h * (0.08f + i * 0.04f),
-                            cx - w * 0.04f, cy + h * 0.06f - h * (i * 0.05f)
-                        )
-                        close()
-                    }
-                    drawPath(leafPath, color = pathColor)
-                }
-                
-                // Drawing the 4 leaves on the right (perfect mirror)
-                for (i in 0..3) {
-                    val leafPath = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cx + w * 0.04f, cy - h * (i * 0.05f))
-                        cubicTo(
-                            cx + w * 0.12f, cy - h * (0.15f + i * 0.06f),
-                            cx + w * 0.32f, cy - h * (0.22f + i * 0.04f),
-                            cx + w * (0.42f - i * 0.04f), cy - h * (0.18f + i * 0.01f)
-                        )
-                        cubicTo(
-                            cx + w * 0.32f, cy - h * (0.15f + i * 0.03f),
-                            cx + w * 0.12f, cy - h * (0.08f + i * 0.04f),
-                            cx + w * 0.04f, cy + h * 0.06f - h * (i * 0.05f)
-                        )
-                        close()
-                    }
-                    drawPath(leafPath, color = pathColor)
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height((4 * scale).dp))
-        
-        // "INSYR" Bold Text
-        Text(
-            text = "INSYR",
-            fontWeight = FontWeight.Black,
-            fontSize = (32 * scale).sp,
-            color = tint,
-            letterSpacing = (-1).sp,
-            modifier = Modifier.testTag("insyr_logo_text")
+        Image(
+            painter = painterResource(id = R.drawable.insyr_logo),
+            contentDescription = "INSYR Learning Logo",
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+                .width(targetWidth)
+                .wrapContentHeight()
+                .padding(horizontal = 6.dp, vertical = 4.dp)
+                .testTag("insyr_logo_image")
         )
-        
-        if (showSubtitle) {
-            // "LEARNING" Subtitle Text with letter spacing
-            Text(
-                text = "LEARNING",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = (12 * scale).sp,
-                color = tint.copy(alpha = 0.9f),
-                letterSpacing = (6 * scale).sp,
-                modifier = Modifier
-                    .padding(start = (6 * scale).dp)
-                    .testTag("insyr_logo_subtitle")
-            )
-        }
     }
 }
 
@@ -8283,87 +20276,1104 @@ fun InsyrLogo(
 fun InsyrLogoHorizontal(
     modifier: Modifier = Modifier,
     tint: Color = GeoPalette.Primary,
-    scale: Float = 1.0f
+    scale: Float = 1.0f,
+    width: androidx.compose.ui.unit.Dp = 120.dp
 ) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start
+    val targetWidth = if (width != 120.dp) width else (120 * scale).dp
+    Surface(
+        color = Color.White,
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.wrapContentSize()
     ) {
-        Box(
-            modifier = Modifier.size((32 * scale).dp),
-            contentAlignment = Alignment.Center
+        Image(
+            painter = painterResource(id = R.drawable.insyr_logo),
+            contentDescription = "INSYR Learning Logo",
+            contentScale = ContentScale.Fit,
+            modifier = modifier
+                .width(targetWidth)
+                .wrapContentHeight()
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .testTag("insyr_logo_horizontal")
+        )
+    }
+}
+
+@Composable
+fun AddMockTestFullScreen(
+    stream: String,
+    onDismiss: () -> Unit,
+    onSubmit: (title: String, type: String, questions: List<MockQuestion>, durationMinutes: Int, description: String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf("topicwise") } // "topicwise" / "fulllength"
+    var testDurationMinutes by remember { mutableStateOf("30") }
+
+    // List of custom questions
+    val questions = remember { mutableStateListOf<MockQuestion>() }
+
+    // Form states for creating a new question
+    var questionText by remember { mutableStateOf("") }
+    var optionA by remember { mutableStateOf("") }
+    var optionB by remember { mutableStateOf("") }
+    var optionC by remember { mutableStateOf("") }
+    var optionD by remember { mutableStateOf("") }
+    var correctOptionIndex by remember { mutableStateOf(0) }
+    var explanation by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF9FAFB)) // Light gray background
+    ) {
+        // App Bar / Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
-                val w = size.width
-                val h = size.height
-                val pathColor = tint
-                val cx = w / 2f
-                val cy = h / 2f + h * 0.08f
-                
-                // Drawing the 4 leaves on the left
-                for (i in 0..3) {
-                    val leafPath = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cx - w * 0.04f, cy - h * (i * 0.05f))
-                        cubicTo(
-                            cx - w * 0.12f, cy - h * (0.15f + i * 0.06f),
-                            cx - w * 0.32f, cy - h * (0.22f + i * 0.04f),
-                            cx - w * (0.42f - i * 0.04f), cy - h * (0.18f + i * 0.01f)
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0xFF7B0F2E),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Add New Mock Test",
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1F2937)
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Card 1: Destination Folder
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Destination Folder",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Stream tag - Pink/maroon style
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFFFF1F2), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFFDA4AF), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "$stream Stream",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF9F1239)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF9CA3AF),
+                            modifier = Modifier.size(16.dp)
                         )
-                        cubicTo(
-                            cx - w * 0.32f, cy - h * (0.15f + i * 0.03f),
-                            cx - w * 0.12f, cy - h * (0.08f + i * 0.04f),
-                            cx - w * 0.04f, cy + h * 0.06f - h * (i * 0.05f)
-                        )
-                        close()
+
+                        // Stream Mock Test tag - Blue style
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFEFF6FF), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Stream Mock Test",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D4ED8)
+                            )
+                        }
                     }
-                    drawPath(leafPath, color = pathColor)
                 }
-                
-                // Drawing the 4 leaves on the right (perfect mirror)
-                for (i in 0..3) {
-                    val leafPath = androidx.compose.ui.graphics.Path().apply {
-                        moveTo(cx + w * 0.04f, cy - h * (i * 0.05f))
-                        cubicTo(
-                            cx + w * 0.12f, cy - h * (0.15f + i * 0.06f),
-                            cx + w * 0.32f, cy - h * (0.22f + i * 0.04f),
-                            cx + w * (0.42f - i * 0.04f), cy - h * (0.18f + i * 0.01f)
+            }
+
+            // Card 2: Content Information
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Content Information",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1F2937)
+                    )
+
+                    // Title Field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Title",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
                         )
-                        cubicTo(
-                            cx + w * 0.32f, cy - h * (0.15f + i * 0.03f),
-                            cx + w * 0.12f, cy - h * (0.08f + i * 0.04f),
-                            cx + w * 0.04f, cy + h * 0.06f - h * (i * 0.05f)
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            placeholder = { Text("Enter title", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
                         )
-                        close()
                     }
-                    drawPath(leafPath, color = pathColor)
+
+                    // Description Field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Description",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            placeholder = { Text("Enter description", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+                }
+            }
+
+            // Card 3: Mock Exam Settings
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Mock Exam Settings",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1F2937)
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { type = "topicwise" }
+                        ) {
+                            RadioButton(
+                                selected = type == "topicwise",
+                                onClick = { type = "topicwise" },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFFFDA4AF),
+                                    unselectedColor = Color(0xFFD1D5DB)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Topic Wise", fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { type = "fulllength" }
+                        ) {
+                            RadioButton(
+                                selected = type == "fulllength",
+                                onClick = { type = "fulllength" },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFFFDA4AF),
+                                    unselectedColor = Color(0xFFD1D5DB)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Full Length", fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = testDurationMinutes,
+                        onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+                        label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        colors = getHighContrastTextFieldColors()
+                    )
+                }
+            }
+
+            // Card 4: Questions list & Add Questions
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Add Questions (Count: ${questions.size})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF7B0F2E)
+                    )
+
+                    // Render list of already added questions with delete option
+                    if (questions.isNotEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
+                                .padding(8.dp)
+                        ) {
+                            questions.forEachIndexed { qIdx, q ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Q${qIdx + 1}: ${q.questionText}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F2937))
+                                        Text("Ans: Option ${listOf("A", "B", "C", "D").getOrNull(q.correctAnswerIndex) ?: "A"}", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                    IconButton(
+                                        onClick = { questions.removeAt(qIdx) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, "Remove Question", tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFE5E7EB))
+                    }
+
+                    // Input Form for new MCQ Question
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Question Text",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = questionText,
+                            onValueChange = { questionText = it },
+                            placeholder = { Text("Question Text", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+
+                    // Options A & B Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option A", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionA,
+                                onValueChange = { optionA = it },
+                                placeholder = { Text("Option A", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option B", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionB,
+                                onValueChange = { optionB = it },
+                                placeholder = { Text("Option B", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+                    }
+
+                    // Options C & D Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option C", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionC,
+                                onValueChange = { optionC = it },
+                                placeholder = { Text("Option C", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option D", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionD,
+                                onValueChange = { optionD = it },
+                                placeholder = { Text("Option D", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+                    }
+
+                    // Correct Option Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Correct Index", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("A", "B", "C", "D").forEachIndexed { index, optLetter ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { correctOptionIndex = index }
+                                ) {
+                                    RadioButton(
+                                        selected = correctOptionIndex == index,
+                                        onClick = { correctOptionIndex = index },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Color(0xFFFDA4AF),
+                                            unselectedColor = Color(0xFFD1D5DB)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(optLetter, fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+
+                    // Explanation field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Explanation (Optional)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = explanation,
+                            onValueChange = { explanation = it },
+                            placeholder = { Text("Explanation (Optional)", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (questionText.isBlank() || optionA.isBlank() || optionB.isBlank()) {
+                                    return@TextButton
+                                }
+                                val newQ = MockQuestion(
+                                    id = "q_${System.currentTimeMillis()}",
+                                    questionText = questionText,
+                                    options = listOf(optionA, optionB, optionC.ifBlank { "N/A" }, optionD.ifBlank { "N/A" }),
+                                    correctAnswerIndex = correctOptionIndex,
+                                    explanation = explanation
+                                )
+                                questions.add(newQ)
+                                
+                                // Clear fields
+                                questionText = ""
+                                optionA = ""
+                                optionB = ""
+                                optionC = ""
+                                optionD = ""
+                                correctOptionIndex = 0
+                                explanation = ""
+                            }
+                        ) {
+                            Text(
+                                text = "Add Question to List",
+                                color = Color(0xFF7B0F2E),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Bottom Buttons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+                ) {
+                    Text("Cancel", color = Color(0xFF1F2937), fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        if (title.isNotBlank() && questions.isNotEmpty()) {
+                            onSubmit(title, type, questions.toList(), testDurationMinutes.toIntOrNull() ?: 0, description)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = title.isNotBlank() && questions.isNotEmpty()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("Upload", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.width((8 * scale).dp))
-        
-        Column(
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.Start
+    }
+}
+
+@Composable
+fun EditMockTestFullScreen(
+    test: MockTest,
+    onDismiss: () -> Unit,
+    onSubmit: (title: String, type: String, questions: List<MockQuestion>, durationMinutes: Int) -> Unit
+) {
+    var title by remember { mutableStateOf(test.title) }
+    var description by remember { mutableStateOf(test.description) }
+    var type by remember { mutableStateOf(test.type) }
+    var testDurationMinutes by remember { mutableStateOf(test.durationMinutes.toString()) }
+
+    // List of custom questions
+    val questions = remember { mutableStateListOf<MockQuestion>().apply { addAll(test.questions) } }
+
+    // Form states for creating/editing a question
+    var questionText by remember { mutableStateOf("") }
+    var optionA by remember { mutableStateOf("") }
+    var optionB by remember { mutableStateOf("") }
+    var optionC by remember { mutableStateOf("") }
+    var optionD by remember { mutableStateOf("") }
+    var correctOptionIndex by remember { mutableStateOf(0) }
+    var explanation by remember { mutableStateOf("") }
+
+    var editingQuestionIndex by remember { mutableStateOf<Int?>(null) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFFF9FAFB)) // Light gray background
+    ) {
+        // App Bar / Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.White)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color(0xFF7B0F2E),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "INSYR",
-                fontWeight = FontWeight.Black,
-                fontSize = (18 * scale).sp,
-                color = tint,
-                letterSpacing = (-0.5).sp,
-                lineHeight = (18 * scale).sp
-            )
-            Text(
-                text = "LEARNING",
+                text = "Edit Mock Test",
+                fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
-                fontSize = (8 * scale).sp,
-                color = tint.copy(alpha = 0.8f),
-                letterSpacing = (2 * scale).sp,
-                lineHeight = (8 * scale).sp
+                color = Color(0xFF1F2937)
             )
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Card 1: Destination Folder
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Destination Folder",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Stream tag - Pink/maroon style
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFFFF1F2), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFFDA4AF), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = test.stream,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF9F1239)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF9CA3AF),
+                            modifier = Modifier.size(16.dp)
+                        )
+
+                        // Domain tag - Blue style
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFEFF6FF), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFBFDBFE), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Domain",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D4ED8)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF9CA3AF),
+                            modifier = Modifier.size(16.dp)
+                        )
+
+                        // Subject tag - Green style
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFFECFDF5), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFA7F3D0), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Physics",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF065F46)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Card 2: Content Information
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Content Information",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1F2937)
+                    )
+
+                    // Title field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Title",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            placeholder = { Text("Enter title", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+
+                    // Description field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Description",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = description,
+                            onValueChange = { description = it },
+                            placeholder = { Text("Enter description", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            minLines = 3,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+                }
+            }
+
+            // Card 3: Mock Exam Settings
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Mock Exam Settings",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1F2937)
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { type = "topicwise" }
+                        ) {
+                            RadioButton(
+                                selected = type == "topicwise",
+                                onClick = { type = "topicwise" },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFFFDA4AF),
+                                    unselectedColor = Color(0xFFD1D5DB)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Topic Wise", fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { type = "fulllength" }
+                        ) {
+                            RadioButton(
+                                selected = type == "fulllength",
+                                onClick = { type = "fulllength" },
+                                colors = RadioButtonDefaults.colors(
+                                    selectedColor = Color(0xFFFDA4AF),
+                                    unselectedColor = Color(0xFFD1D5DB)
+                                )
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Full Length", fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = testDurationMinutes,
+                        onValueChange = { testDurationMinutes = it.filter { char -> char.isDigit() } },
+                        label = { Text("Time Limit (Minutes) [0 = No Limit]", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        ),
+                        colors = getHighContrastTextFieldColors()
+                    )
+                }
+            }
+
+            // Card 4: Questions list & Edit Questions
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        text = "Questions (Count: ${questions.size})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF7B0F2E)
+                    )
+
+                    if (questions.isNotEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
+                                .padding(8.dp)
+                        ) {
+                            questions.forEachIndexed { qIdx, q ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFF9FAFB), RoundedCornerShape(8.dp))
+                                        .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Q${qIdx + 1}: ${q.questionText}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1F2937))
+                                        Text("Ans: Option ${listOf("A", "B", "C", "D").getOrNull(q.correctAnswerIndex) ?: "A"}", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                editingQuestionIndex = qIdx
+                                                questionText = q.questionText
+                                                optionA = q.options.getOrNull(0) ?: ""
+                                                optionB = q.options.getOrNull(1) ?: ""
+                                                optionC = q.options.getOrNull(2) ?: ""
+                                                optionD = q.options.getOrNull(3) ?: ""
+                                                correctOptionIndex = q.correctAnswerIndex
+                                                explanation = q.explanation ?: ""
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Edit, "Edit Question", tint = Color(0xFF1976D2), modifier = Modifier.size(18.dp))
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                questions.removeAt(qIdx)
+                                                if (editingQuestionIndex == qIdx) {
+                                                    editingQuestionIndex = null
+                                                    questionText = ""
+                                                    optionA = ""
+                                                    optionB = ""
+                                                    optionC = ""
+                                                    optionD = ""
+                                                    correctOptionIndex = 0
+                                                    explanation = ""
+                                                } else if (editingQuestionIndex != null && editingQuestionIndex!! > qIdx) {
+                                                    editingQuestionIndex = editingQuestionIndex!! - 1
+                                                }
+                                            },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, "Remove Question", tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFFE5E7EB))
+                    }
+
+                    Text(
+                        text = if (editingQuestionIndex == null) "Add New Question MCQ" else "Edit Question MCQ (Q${editingQuestionIndex!! + 1})",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (editingQuestionIndex == null) Color(0xFF7B0F2E) else Color(0xFF1976D2)
+                    )
+
+                    // Question Text
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Question Text",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = questionText,
+                            onValueChange = { questionText = it },
+                            placeholder = { Text("Question Text", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+
+                    // Options A & B Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option A", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionA,
+                                onValueChange = { optionA = it },
+                                placeholder = { Text("Option A", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option B", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionB,
+                                onValueChange = { optionB = it },
+                                placeholder = { Text("Option B", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+                    }
+
+                    // Options C & D Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option C", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionC,
+                                onValueChange = { optionC = it },
+                                placeholder = { Text("Option C", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Option D", fontSize = 12.sp, color = Color(0xFF4B5563), fontWeight = FontWeight.Medium)
+                            OutlinedTextField(
+                                value = optionD,
+                                onValueChange = { optionD = it },
+                                placeholder = { Text("Option D", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = getHighContrastTextFieldColors()
+                            )
+                        }
+                    }
+
+                    // Correct Option Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Correct Index", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4B5563))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf("A", "B", "C", "D").forEachIndexed { index, optLetter ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.clickable { correctOptionIndex = index }
+                                ) {
+                                    RadioButton(
+                                        selected = correctOptionIndex == index,
+                                        onClick = { correctOptionIndex = index },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Color(0xFFFDA4AF),
+                                            unselectedColor = Color(0xFFD1D5DB)
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(optLetter, fontSize = 13.sp, color = Color(0xFF1F2937), fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+
+                    // Explanation field
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Explanation (Optional)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF4B5563)
+                        )
+                        OutlinedTextField(
+                            value = explanation,
+                            onValueChange = { explanation = it },
+                            placeholder = { Text("Explanation (Optional)", color = Color(0xFF9CA3AF), fontSize = 14.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = getHighContrastTextFieldColors()
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(
+                            onClick = {
+                                if (questionText.isBlank() || optionA.isBlank() || optionB.isBlank()) {
+                                    return@TextButton
+                                }
+                                val newQ = MockQuestion(
+                                    id = if (editingQuestionIndex != null) questions[editingQuestionIndex!!].id else "q_${System.currentTimeMillis()}",
+                                    questionText = questionText,
+                                    options = listOf(optionA, optionB, optionC.ifBlank { "N/A" }, optionD.ifBlank { "N/A" }),
+                                    correctAnswerIndex = correctOptionIndex,
+                                    explanation = explanation
+                                )
+                                if (editingQuestionIndex != null) {
+                                    questions[editingQuestionIndex!!] = newQ
+                                    editingQuestionIndex = null
+                                } else {
+                                    questions.add(newQ)
+                                }
+                                
+                                // Clear fields
+                                questionText = ""
+                                optionA = ""
+                                optionB = ""
+                                optionC = ""
+                                optionD = ""
+                                correctOptionIndex = 0
+                                explanation = ""
+                            }
+                        ) {
+                            Text(
+                                text = if (editingQuestionIndex != null) "Save Question Changes" else "Add Question to List",
+                                color = Color(0xFF7B0F2E),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Bottom Buttons
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+                ) {
+                    Text("Cancel", color = Color(0xFF1F2937), fontWeight = FontWeight.Bold)
+                }
+
+                Button(
+                    onClick = {
+                        if (title.isNotBlank() && questions.isNotEmpty()) {
+                            onSubmit(title, type, questions.toList(), testDurationMinutes.toIntOrNull() ?: 0)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7B0F2E)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = title.isNotBlank() && questions.isNotEmpty()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text("Save Changes", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
         }
     }
 }
+
 

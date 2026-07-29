@@ -32,8 +32,20 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // recordedClasses collection
+    match /recordedClasses/{classId} {
+      allow read: if hasStreamAccess(resource.data);
+      allow write: if isAdmin();
+    }
+
     // materials collection
     match /materials/{materialId} {
+      allow read: if hasStreamAccess(resource.data);
+      allow write: if isAdmin();
+    }
+
+    // pyqs collection
+    match /pyqs/{pyqId} {
       allow read: if hasStreamAccess(resource.data);
       allow write: if isAdmin();
     }

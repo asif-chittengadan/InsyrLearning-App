@@ -20,7 +20,14 @@ data class QuizState(
     val currentQuestionIndex: Int = 0,
     val selectedAnswers: Map<Int, Int> = emptyMap(), // QuestionIndex -> OptionIndex
     val isSubmitted: Boolean = false,
-    val score: Int = 0
+    val score: Int = 0,
+    val correctCount: Int = 0,
+    val wrongCount: Int = 0,
+    val percentage: Double = 0.0,
+    val isReviewMode: Boolean = false,
+    val lastAttempt: TestAttempt? = null,
+    val startTimeMillis: Long = 0L,
+    val timeTakenSeconds: Long = 0L
 )
 
 class LearningViewModel(
@@ -48,8 +55,32 @@ class LearningViewModel(
     private val _mockTests = MutableStateFlow<List<MockTest>>(emptyList())
     val mockTests: StateFlow<List<MockTest>> = _mockTests.asStateFlow()
 
+    private val _pyqs = MutableStateFlow<List<PYQ>>(emptyList())
+    val pyqs: StateFlow<List<PYQ>> = _pyqs.asStateFlow()
+
     private val _feedbackList = MutableStateFlow<List<FeedbackEntry>>(emptyList())
     val feedbackList: StateFlow<List<FeedbackEntry>> = _feedbackList.asStateFlow()
+
+    private val _testAttempts = MutableStateFlow<List<TestAttempt>>(emptyList())
+    val testAttempts: StateFlow<List<TestAttempt>> = _testAttempts.asStateFlow()
+
+    // Learning Activity Counters
+    private val _videosWatched = MutableStateFlow(0)
+    val videosWatched: StateFlow<Int> = _videosWatched.asStateFlow()
+
+    private val _studyMaterialsOpened = MutableStateFlow(0)
+    val studyMaterialsOpened: StateFlow<Int> = _studyMaterialsOpened.asStateFlow()
+
+    private val _recordedClassesWatched = MutableStateFlow(0)
+    val recordedClassesWatched: StateFlow<Int> = _recordedClassesWatched.asStateFlow()
+
+    private val _pyqsViewed = MutableStateFlow(0)
+    val pyqsViewed: StateFlow<Int> = _pyqsViewed.asStateFlow()
+
+    fun trackVideoWatched() { _videosWatched.value += 1 }
+    fun trackMaterialOpened() { _studyMaterialsOpened.value += 1 }
+    fun trackRecordedClassWatched() { _recordedClassesWatched.value += 1 }
+    fun trackPyqViewed() { _pyqsViewed.value += 1 }
 
     // Loading status for lists
     private val _isLoadingContent = MutableStateFlow(false)
@@ -98,6 +129,7 @@ class LearningViewModel(
         _materials.value = emptyList()
         _recordedClasses.value = emptyList()
         _mockTests.value = emptyList()
+        _pyqs.value = emptyList()
         _feedbackList.value = emptyList()
         _quizState.value = QuizState()
     }
@@ -194,15 +226,34 @@ class LearningViewModel(
                 _materials.value = repository.getMaterials()
                 _recordedClasses.value = repository.getRecordedClasses()
                 _mockTests.value = repository.getMockTests()
+                _pyqs.value = repository.getPYQs()
                 _feedbackList.value = repository.getFeedback()
             } else if (currentUser.isApproved()) {
-                // Approved student loads relevant content
-                _videos.value = repository.getVideos()
-                _materials.value = repository.getMaterials()
-                _recordedClasses.value = repository.getRecordedClasses()
-                _mockTests.value = repository.getMockTests()
+                // Automatically detect logged-in student's stream from Firestore
+                val studentStream = currentUser.stream
+                if (studentStream.isNotBlank()) {
+                    _videos.value = repository.getVideos(stream = studentStream)
+                    _materials.value = repository.getMaterials(stream = studentStream)
+                    _recordedClasses.value = repository.getRecordedClasses(stream = studentStream)
+                    _mockTests.value = repository.getMockTests(stream = studentStream)
+                    _pyqs.value = repository.getPYQs(stream = studentStream)
+                } else {
+                    _videos.value = repository.getVideos()
+                    _materials.value = repository.getMaterials()
+                    _recordedClasses.value = repository.getRecordedClasses()
+                    _mockTests.value = repository.getMockTests()
+                    _pyqs.value = repository.getPYQs()
+                }
+                loadAttempts()
             }
             _isLoadingContent.value = false
+        }
+    }
+
+    fun loadAttempts() {
+        viewModelScope.launch {
+            val uid = repository.currentUser.value?.uid ?: ""
+            _testAttempts.value = repository.getTestAttempts(uid)
         }
     }
 
@@ -264,7 +315,7 @@ class LearningViewModel(
     }
 
     // ADMIN ACTION: Add video
-    fun addVideo(title: String, description: String, url: String, category: String, stream: String, thumbnailUrl: String) {
+    fun addVideo(title: String, description: String, url: String, category: String, stream: String, domain: String = "", thumbnailUrl: String, module: String = "", subject: String = "", contentType: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -275,7 +326,7 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.addVideo(title, description, url, category, stream, thumbnailUrl)
+            repository.addVideo(title, description, url, category, stream, domain, thumbnailUrl, module, subject, contentType)
                 .onSuccess {
                     showMessage("Video lecture uploaded successfully!")
                     loadContent()
@@ -286,31 +337,31 @@ class LearningViewModel(
         }
     }
 
-    // ADMIN ACTION: Add recorded class
-    fun addRecordedClass(title: String, videoUrl: String, stream: String) {
+    // ADMIN ACTION: Add recorded class (Live Class)
+    fun addRecordedClass(title: String, videoUrl: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
             return
         }
         if (title.isBlank() || videoUrl.isBlank()) {
-            showMessage("Title and Video URL cannot be empty")
+            showMessage("Title and Live Class URL cannot be empty")
             return
         }
         viewModelScope.launch {
-            repository.addRecordedClass(title, videoUrl, stream)
+            repository.addRecordedClass(title, videoUrl, stream, domain, module, subject, contentType, description)
                 .onSuccess {
-                    showMessage("Recorded class uploaded successfully!")
+                    showMessage("Live class uploaded successfully!")
                     loadContent()
                 }
                 .onFailure { error ->
-                    showMessage("Failed to upload recorded class: ${error.localizedMessage}")
+                    showMessage("Failed to upload live class: ${error.localizedMessage}")
                 }
         }
     }
 
     // ADMIN ACTION: Add material
-    fun addMaterial(title: String, fileUrl: String, category: String, stream: String) {
+    fun addMaterial(title: String, fileUrl: String, category: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -321,7 +372,7 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.addMaterial(title, fileUrl, category, stream)
+            repository.addMaterial(title, fileUrl, category, stream, domain, module, subject, contentType, description)
                 .onSuccess {
                     showMessage("Study Material notes uploaded successfully!")
                     loadContent()
@@ -333,7 +384,7 @@ class LearningViewModel(
     }
 
     // ADMIN ACTION: Add Mock Test
-    fun addMockTest(title: String, type: String, stream: String, questions: List<MockQuestion>) {
+    fun addMockTest(title: String, type: String, stream: String, domain: String = "", questions: List<MockQuestion>, module: String = "", subject: String = "", contentType: String = "", description: String = "", durationMinutes: Int = 0) {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -348,7 +399,7 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.addMockTest(title, type, stream, questions)
+            repository.addMockTest(title, type, stream, domain, questions, module, subject, contentType, description, durationMinutes = durationMinutes)
                 .onSuccess {
                     showMessage("Mock Test created with ${questions.size} questions!")
                     loadContent()
@@ -360,7 +411,7 @@ class LearningViewModel(
     }
 
     // ADMIN ACTION: Delete content
-    fun editVideo(id: String, title: String, description: String, url: String, category: String, stream: String, thumbnailUrl: String) {
+    fun editVideo(id: String, title: String, description: String, url: String, category: String, stream: String, domain: String = "", thumbnailUrl: String, module: String = "", subject: String = "", contentType: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -371,7 +422,7 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.editVideo(id, title, description, url, category, stream, thumbnailUrl)
+            repository.editVideo(id, title, description, url, category, stream, domain, thumbnailUrl, module, subject, contentType)
                 .onSuccess {
                     showMessage("Video lecture updated successfully!")
                     loadContent()
@@ -382,31 +433,31 @@ class LearningViewModel(
         }
     }
 
-    // ADMIN ACTION: Edit recorded class
-    fun editRecordedClass(id: String, title: String, videoUrl: String, stream: String) {
+    // ADMIN ACTION: Edit recorded class (Live Class)
+    fun editRecordedClass(id: String, title: String, videoUrl: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
             return
         }
         if (title.isBlank() || videoUrl.isBlank()) {
-            showMessage("Title and Video URL cannot be empty")
+            showMessage("Title and Live Class URL cannot be empty")
             return
         }
         viewModelScope.launch {
-            repository.editRecordedClass(id, title, videoUrl, stream)
+            repository.editRecordedClass(id, title, videoUrl, stream, domain, module, subject, contentType, description)
                 .onSuccess {
-                    showMessage("Recorded class updated successfully!")
+                    showMessage("Live class updated successfully!")
                     loadContent()
                 }
                 .onFailure { error ->
-                    showMessage("Failed to update recorded class: ${error.localizedMessage}")
+                    showMessage("Failed to update live class: ${error.localizedMessage}")
                 }
         }
     }
 
     // ADMIN ACTION: Edit material
-    fun editMaterial(id: String, title: String, fileUrl: String, category: String, stream: String) {
+    fun editMaterial(id: String, title: String, fileUrl: String, category: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -417,7 +468,7 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.editMaterial(id, title, fileUrl, category, stream)
+            repository.editMaterial(id, title, fileUrl, category, stream, domain, module, subject, contentType, description)
                 .onSuccess {
                     showMessage("Study Material notes updated successfully!")
                     loadContent()
@@ -429,7 +480,7 @@ class LearningViewModel(
     }
 
     // ADMIN ACTION: Edit Mock Test
-    fun editMockTest(id: String, title: String, type: String, stream: String, questions: List<MockQuestion>) {
+    fun editMockTest(id: String, title: String, type: String, stream: String, domain: String = "", questions: List<MockQuestion>, module: String = "", subject: String = "", contentType: String = "", description: String = "", durationMinutes: Int = 0) {
         val currentUser = repository.currentUser.value
         if (currentUser == null || currentUser.role != "admin") {
             showMessage("Action rejected: Administrator permissions required.")
@@ -444,13 +495,59 @@ class LearningViewModel(
             return
         }
         viewModelScope.launch {
-            repository.editMockTest(id, title, type, stream, questions)
+            repository.editMockTest(id, title, type, stream, domain, questions, module, subject, contentType, description, durationMinutes = durationMinutes)
                 .onSuccess {
                     showMessage("Mock Test updated successfully!")
                     loadContent()
                 }
                 .onFailure { error ->
                     showMessage("Failed to update mock test: ${error.localizedMessage}")
+                }
+        }
+    }
+
+    // ADMIN ACTION: Add PYQ
+    fun addPYQ(title: String, fileUrl: String, category: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
+        val currentUser = repository.currentUser.value
+        if (currentUser == null || currentUser.role != "admin") {
+            showMessage("Action rejected: Administrator permissions required.")
+            return
+        }
+        if (title.isBlank() || fileUrl.isBlank()) {
+            showMessage("Title and PYQ file link cannot be empty")
+            return
+        }
+        viewModelScope.launch {
+            repository.addPYQ(title, fileUrl, category, stream, domain, module, subject, contentType, description)
+                .onSuccess {
+                    showMessage("PYQ notes uploaded successfully!")
+                    loadContent()
+                }
+                .onFailure { error ->
+                    showMessage("Failed to upload PYQ: ${error.localizedMessage}")
+                }
+        }
+    }
+
+    // ADMIN ACTION: Edit PYQ
+    fun editPYQ(id: String, title: String, fileUrl: String, category: String, stream: String, domain: String = "", module: String = "", subject: String = "", contentType: String = "", description: String = "") {
+        val currentUser = repository.currentUser.value
+        if (currentUser == null || currentUser.role != "admin") {
+            showMessage("Action rejected: Administrator permissions required.")
+            return
+        }
+        if (title.isBlank() || fileUrl.isBlank()) {
+            showMessage("Title and PYQ file link cannot be empty")
+            return
+        }
+        viewModelScope.launch {
+            repository.editPYQ(id, title, fileUrl, category, stream, domain, module, subject, contentType, description)
+                .onSuccess {
+                    showMessage("PYQ notes updated successfully!")
+                    loadContent()
+                }
+                .onFailure { error ->
+                    showMessage("Failed to update PYQ: ${error.localizedMessage}")
                 }
         }
     }
@@ -497,14 +594,21 @@ class LearningViewModel(
             currentQuestionIndex = 0,
             selectedAnswers = emptyMap(),
             isSubmitted = false,
-            score = 0
+            score = 0,
+            correctCount = 0,
+            wrongCount = 0,
+            percentage = 0.0,
+            isReviewMode = false,
+            lastAttempt = null,
+            startTimeMillis = System.currentTimeMillis(),
+            timeTakenSeconds = 0L
         )
     }
 
     // STUDENT QUIZ: Select Answer
     fun selectQuizAnswer(questionIndex: Int, optionIndex: Int) {
         val current = _quizState.value
-        if (current.isSubmitted) return // disable changes after submit
+        if (current.isSubmitted || current.isReviewMode) return // disable changes after submit
         _quizState.value = current.copy(
             selectedAnswers = current.selectedAnswers + (questionIndex to optionIndex)
         )
@@ -526,22 +630,77 @@ class LearningViewModel(
         }
     }
 
+    fun jumpToQuestion(index: Int) {
+        val current = _quizState.value
+        val total = current.activeTest?.questions?.size ?: 0
+        if (index in 0 until total) {
+            _quizState.value = current.copy(currentQuestionIndex = index)
+        }
+    }
+
+    fun setReviewMode(enabled: Boolean) {
+        _quizState.value = _quizState.value.copy(isReviewMode = enabled)
+    }
+
     // STUDENT QUIZ: Submit Test
     fun submitQuiz() {
         val current = _quizState.value
         val test = current.activeTest ?: return
+        val user = currentUser.value
         var calculatedScore = 0
+        var correctCount = 0
+        var wrongCount = 0
+        val totalQ = test.questions.size
+
         test.questions.forEachIndexed { idx, question ->
             val selected = current.selectedAnswers[idx]
-            if (selected == question.correctAnswerIndex) {
-                calculatedScore++
+            if (selected != null) {
+                if (selected == question.correctAnswerIndex) {
+                    correctCount++
+                    calculatedScore += 4 // 4 marks per correct answer
+                } else {
+                    wrongCount++
+                }
             }
         }
+
+        val elapsedMs = if (current.startTimeMillis > 0) System.currentTimeMillis() - current.startTimeMillis else 0L
+        val calculatedTimeTakenSec = (elapsedMs / 1000).coerceAtLeast(12L)
+
+        val percentage = if (totalQ > 0) (correctCount.toDouble() / totalQ.toDouble()) * 100.0 else 0.0
+
+        val attempt = TestAttempt(
+            id = java.util.UUID.randomUUID().toString(),
+            userId = user?.uid ?: "student_user",
+            testId = test.id,
+            testTitle = test.title,
+            subject = test.subject.ifBlank { test.domain.ifBlank { test.stream } },
+            score = calculatedScore,
+            totalQuestions = totalQ,
+            correctAnswers = correctCount,
+            wrongAnswers = wrongCount,
+            percentage = percentage,
+            answers = current.selectedAnswers.mapKeys { it.key.toString() },
+            submittedAt = com.google.firebase.Timestamp.now()
+        )
+
         _quizState.value = current.copy(
             isSubmitted = true,
-            score = calculatedScore
+            score = calculatedScore,
+            correctCount = correctCount,
+            wrongCount = wrongCount,
+            percentage = percentage,
+            timeTakenSeconds = calculatedTimeTakenSec,
+            lastAttempt = attempt,
+            isReviewMode = false
         )
-        showMessage("Quiz finished! You scored $calculatedScore/${test.questions.size}")
+
+        viewModelScope.launch {
+            repository.saveTestAttempt(attempt)
+            loadAttempts()
+        }
+
+        showMessage("Exam Submitted! Correct: $correctCount, Wrong: $wrongCount, Score: $calculatedScore Marks (${String.format("%.1f", percentage)}%)")
     }
 
     // STUDENT QUIZ: Exit Quiz
