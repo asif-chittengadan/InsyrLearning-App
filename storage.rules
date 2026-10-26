@@ -1,0 +1,31 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.email == 'admin@insyrlearning.com';
+    }
+
+    function ownsPhoto(file) {
+      return signedIn() && file.matches('profile_' + request.auth.uid + '_.*');
+    }
+
+    match /profile_photos/{file} {
+      allow read: if signedIn();
+      allow create, update: if ownsPhoto(file)
+        && request.resource.size < 2 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if ownsPhoto(file) || isAdmin();
+    }
+
+    match /{folder}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

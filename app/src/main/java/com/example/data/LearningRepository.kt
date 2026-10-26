@@ -19,6 +19,8 @@ interface LearningRepository {
     suspend fun login(identifier: String, password: String): Result<UserProfile>
     suspend fun loginWithGoogle(idToken: String): Result<UserProfile>
     suspend fun logout()
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit>
+    suspend fun deleteAccount(currentPassword: String): Result<Unit>
     suspend fun tryRestoreSession(context: android.content.Context): Result<UserProfile?>
     suspend fun updateUserProfile(profile: UserProfile): Result<UserProfile>
     
@@ -96,9 +98,7 @@ class AppLearningRepository : LearningRepository {
     }
 
     override fun setFirebaseEnabled(enabled: Boolean) {
-        _isFirebaseEnabled.value = enabled
-        // Log out current session to enforce re-auth on mode switch
-        _currentUser.value = null
+        _isFirebaseEnabled.value = true
     }
 
     override suspend fun signUp(
@@ -111,9 +111,8 @@ class AppLearningRepository : LearningRepository {
         password: String
     ): Result<UserProfile> {
         return try {
-            val isEmailAdmin = email.equals("admin@insyrlearning.com", ignoreCase = true)
-            val actualRole = if (isEmailAdmin) "admin" else "student"
-            val status = if (actualRole == "admin") "approved" else "pending"
+            val actualRole = "student"
+            val status = "pending"
             
             if (_isFirebaseEnabled.value) {
                 val auth = FirebaseAuth.getInstance()
@@ -127,7 +126,7 @@ class AppLearningRepository : LearningRepository {
                     name = name,
                     phone = phone,
                     email = email,
-                    password = password,
+                    password = "",
                     stream = stream,
                     photoUrl = photoUrl,
                     role = actualRole,
@@ -146,7 +145,7 @@ class AppLearningRepository : LearningRepository {
                     name = name,
                     phone = phone,
                     email = email,
-                    password = password,
+                    password = "",
                     stream = stream,
                     photoUrl = photoUrl,
                     role = actualRole,
@@ -181,15 +180,14 @@ class AppLearningRepository : LearningRepository {
                     doc.toObject(UserProfile::class.java) ?: throw Exception("User profile not found in Firestore")
                 } else {
                     // Precreate if it was created on the fly
-                    val isFixedAdmin = email.equals("admin@insyrlearning.com", ignoreCase = true)
                     val newProfile = UserProfile(
                         uid = uid,
                         name = displayName,
                         phone = "",
                         email = email,
                         password = "",
-                        role = if (isFixedAdmin) "admin" else "student",
-                        status = "approved",
+                        role = "student",
+                        status = "pending",
                         photoUrl = photoUrl
                     )
                     firestore.collection("users").document(uid).set(newProfile).await()
@@ -245,20 +243,7 @@ class AppLearningRepository : LearningRepository {
                 }
                 
                 // Try sign-in
-                var authResult = try {
-                    auth.signInWithEmailAndPassword(emailToAuth, password).await()
-                } catch (authEx: Exception) {
-                    // If is admin@insyrlearning.com and doesn't exist, register on-the-fly for convenient testing
-                    if (emailToAuth.equals("admin@insyrlearning.com", ignoreCase = true)) {
-                        try {
-                            auth.createUserWithEmailAndPassword(emailToAuth, password).await()
-                        } catch (e2: Exception) {
-                            throw authEx
-                        }
-                    } else {
-                        throw authEx
-                    }
-                }
+                val authResult = auth.signInWithEmailAndPassword(emailToAuth, password).await()
                 val uid = authResult.user?.uid ?: throw Exception("Auth login failed")
                 
                 // Fetch the profile
@@ -267,15 +252,14 @@ class AppLearningRepository : LearningRepository {
                     doc.toObject(UserProfile::class.java) ?: throw Exception("User profile not found in Firestore")
                 } else {
                     // Precreate if it was created on the fly
-                    val isFixedAdmin = emailToAuth.equals("admin@insyrlearning.com", ignoreCase = true)
                     val newProfile = UserProfile(
                         uid = uid,
-                        name = if (isFixedAdmin) "Admin" else "Student",
-                        phone = if (isFixedAdmin) "9876543210" else "",
+                        name = "Student",
+                        phone = "",
                         email = emailToAuth,
-                        password = password,
-                        role = if (isFixedAdmin) "admin" else "student",
-                        status = "approved"
+                        password = "",
+                        role = "student",
+                        status = "pending"
                     )
                     firestore.collection("users").document(uid).set(newProfile).await()
                     newProfile
@@ -289,6 +273,9 @@ class AppLearningRepository : LearningRepository {
                     throw Exception("Only the admin email (admin@insyrlearning.com) can access the Admin Dashboard.")
                 }
                 
+                if (profile.password.isNotEmpty()) {
+                    runCatching { firestore.collection("users").document(uid).update("password", "").await() }
+                }
                 val finalProfile = if (isEmailAdmin) {
                     profile.copy(role = "admin", status = "approved")
                 } else {
@@ -312,7 +299,7 @@ class AppLearningRepository : LearningRepository {
                             name = "Admin Principal",
                             phone = "9876543210",
                             email = "admin@insyrlearning.com",
-                            password = password,
+                            password = "",
                             role = "admin",
                             status = "approved"
                         )
@@ -1190,7 +1177,6 @@ class AppLearningRepository : LearningRepository {
             putString("user_phone", profile.phone)
             putString("user_mobile", profile.mobile)
             putString("user_email", profile.email)
-            putString("user_password", profile.password)
             putString("user_stream", profile.stream)
             putString("user_photo_url", profile.photoUrl)
             putString("user_role", profile.role)
@@ -1245,7 +1231,7 @@ class AppLearningRepository : LearningRepository {
                     phone = sharedPref.getString("user_phone", "") ?: "",
                     mobile = sharedPref.getString("user_mobile", "") ?: "",
                     email = sharedPref.getString("user_email", "") ?: "",
-                    password = sharedPref.getString("user_password", "") ?: "",
+                    password = "",
                     stream = sharedPref.getString("user_stream", "") ?: "",
                     photoUrl = sharedPref.getString("user_photo_url", "") ?: "",
                     role = savedRole ?: "student",
@@ -1266,7 +1252,8 @@ class AppLearningRepository : LearningRepository {
         }
     }
 
-    override suspend fun updateUserProfile(profile: UserProfile): Result<UserProfile> {
+    override suspend fun updateUserProfile(original: UserProfile): Result<UserProfile> {
+        val profile = original.copy(password = "")
         return try {
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
@@ -1295,6 +1282,47 @@ class AppLearningRepository : LearningRepository {
             _currentUser.value = profile
             appContext?.let { saveSessionToPrefs(it, profile) }
             Result.success(profile)
+        }
+    }
+    override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> {
+        return try {
+            val user = FirebaseAuth.getInstance().currentUser ?: throw Exception("Not signed in")
+            val email = user.email ?: throw Exception("Account has no email")
+            user.reauthenticate(com.google.firebase.auth.EmailAuthProvider.getCredential(email, currentPassword)).await()
+            user.updatePassword(newPassword).await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteAccount(currentPassword: String): Result<Unit> {
+        return try {
+            val user = FirebaseAuth.getInstance().currentUser ?: throw Exception("Not signed in")
+            val email = user.email ?: ""
+            if (email.equals("admin@insyrlearning.com", ignoreCase = true)) {
+                throw Exception("The admin account cannot be deleted from the app.")
+            }
+            val hasPassword = user.providerData.any { it.providerId == com.google.firebase.auth.EmailAuthProvider.PROVIDER_ID }
+            if (hasPassword) {
+                user.reauthenticate(com.google.firebase.auth.EmailAuthProvider.getCredential(email, currentPassword)).await()
+            }
+            val uid = user.uid
+            val firestore = FirebaseFirestore.getInstance()
+            for (collection in listOf("attempts", "feedback")) {
+                val snapshot = firestore.collection(collection).whereEqualTo("userId", uid).get().await()
+                for (doc in snapshot.documents) {
+                    doc.reference.delete().await()
+                }
+            }
+            firestore.collection("users").document(uid).delete().await()
+            user.delete().await()
+            localUsers.removeAll { it.uid == uid }
+            _currentUser.value = null
+            appContext?.let { clearSessionFromPrefs(it) }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 }

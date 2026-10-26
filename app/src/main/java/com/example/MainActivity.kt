@@ -80,6 +80,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppCheckInit.install()
         enableEdgeToEdge()
         setContent {
             val currentUserState by viewModel.currentUser.collectAsState()
@@ -3713,10 +3714,10 @@ fun StudentPrivacyPolicyDialog(
 
                 Text("Key Policies:", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = GeoPalette.TextPrimary)
                 val points = listOf(
-                    "Your personal information is kept secure and never shared with third parties.",
+                    "Your personal information is kept secure, is not sold, and is shared only with the service providers needed to run the app (Google Firebase).",
                     "Student academic stream and approval status are managed by administrators to prevent unauthorized access.",
                     "Test results and learning activity statistics are retained locally and on secure servers to provide personalized progress tracking.",
-                    "For account deletion or data inquiry, reach out to privacy@insyrlearning.com."
+                    "You can delete your account anytime from Profile > Delete Account, or request deletion or data access at privacy@insyrlearning.com."
                 )
                 points.forEach { pt ->
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
@@ -13153,17 +13154,6 @@ fun UploadContentPage(
         }
     }
 
-    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            val mimeType = if (addType == "materials" || addType == "pyqs") "application/pdf" else "video/mp4"
-            filePickerLauncher.launch(mimeType)
-        } else {
-            android.widget.Toast.makeText(context, "Storage permission is required to select files.", android.widget.Toast.LENGTH_SHORT).show()
-        }
-    }
-
     // Mock Test fields
     var testType by remember { mutableStateOf("topicwise") }
     var questionsList by remember { mutableStateOf<List<MockQuestion>>(emptyList()) }
@@ -19007,6 +18997,8 @@ fun MyProfileDialog(
     viewModel: LearningViewModel? = null
 ) {
     var activeSection by remember { mutableStateOf("menu") }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deletePassword by remember { mutableStateOf("") }
     
     // Edit fields state
     var editName by remember { mutableStateOf(profile.name) }
@@ -19260,6 +19252,15 @@ fun MyProfileDialog(
                                         tag = "menu_feedback"
                                     )
                                 }
+                                if (!profile.isAdmin()) {
+                                    ProfileMenuItem(
+                                        icon = Icons.Default.Delete,
+                                        title = "Delete Account",
+                                        onClick = { showDeleteDialog = true },
+                                        showChevron = false,
+                                        tag = "menu_delete_account"
+                                    )
+                                }
                                 ProfileMenuItem(
                                     icon = Icons.Default.Logout,
                                     title = "Log out",
@@ -19267,6 +19268,35 @@ fun MyProfileDialog(
                                     showChevron = false,
                                     tag = "menu_logout"
                                 )
+                                if (showDeleteDialog) {
+                                    AlertDialog(
+                                        onDismissRequest = { showDeleteDialog = false; deletePassword = "" },
+                                        title = { Text("Delete account?") },
+                                        text = {
+                                            Column {
+                                                Text("This permanently deletes your account, test attempts and feedback. It cannot be undone.")
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                OutlinedTextField(
+                                                    value = deletePassword,
+                                                    onValueChange = { deletePassword = it },
+                                                    label = { Text("Password (email accounts)") },
+                                                    singleLine = true,
+                                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                                                )
+                                            }
+                                        },
+                                        confirmButton = {
+                                            TextButton(onClick = {
+                                                viewModel?.deleteAccount(deletePassword)
+                                                showDeleteDialog = false
+                                                deletePassword = ""
+                                            }) { Text("Delete", color = Color.Red) }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = { showDeleteDialog = false; deletePassword = "" }) { Text("Cancel") }
+                                        }
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(24.dp))
                         }
@@ -19536,10 +19566,13 @@ fun MyProfileDialog(
                             
                             Button(
                                 onClick = {
-                                    if (newPassword.length >= 6 && newPassword == confirmPassword) {
-                                        val updated = profile.copy(password = newPassword)
-                                        onUpdateProfile(updated)
-                                        activeSection = "menu"
+                                    if (currentPassword.isNotBlank() && newPassword.length >= 6 && newPassword == confirmPassword) {
+                                        viewModel?.changePassword(currentPassword, newPassword) {
+                                            currentPassword = ""
+                                            newPassword = ""
+                                            confirmPassword = ""
+                                            activeSection = "menu"
+                                        }
                                     }
                                 },
                                 modifier = Modifier
@@ -19547,7 +19580,7 @@ fun MyProfileDialog(
                                     .height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary),
-                                enabled = newPassword.length >= 6 && newPassword == confirmPassword
+                                enabled = currentPassword.isNotBlank() && newPassword.length >= 6 && newPassword == confirmPassword
                             ) {
                                 Text("Update Password", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }

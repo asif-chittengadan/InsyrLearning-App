@@ -199,6 +199,29 @@ class LearningViewModel(
         }
     }
 
+    fun changePassword(currentPassword: String, newPassword: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            repository.changePassword(currentPassword, newPassword)
+                .onSuccess {
+                    showMessage("Password updated successfully.")
+                    onSuccess()
+                }
+                .onFailure { error ->
+                    showMessage("Failed to update password: ${error.localizedMessage}")
+                }
+        }
+    }
+
+    fun deleteAccount(currentPassword: String) {
+        viewModelScope.launch {
+            repository.deleteAccount(currentPassword)
+                .onSuccess { showMessage("Your account has been deleted.") }
+                .onFailure { error ->
+                    showMessage("Failed to delete account: ${error.localizedMessage}")
+                }
+        }
+    }
+
     // AUTH ACTION: Update User Profile
     fun updateUserProfile(profile: UserProfile) {
         viewModelScope.launch {
