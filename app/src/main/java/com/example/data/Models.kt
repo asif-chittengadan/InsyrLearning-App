@@ -1,6 +1,7 @@
 package com.example.data
 
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.Exclude
 
 /**
  * Enumerations representing fixed domains of the platform
@@ -54,8 +55,11 @@ data class UserProfile(
     val exam: String = "CUET / NCET",
     val createdAt: Timestamp = Timestamp.now()
 ) {
+    @Exclude
     fun isApproved(): Boolean = status == UserStatus.APPROVED.value
+    @Exclude
     fun isAdmin(): Boolean = email.equals(ADMIN_EMAIL, ignoreCase = true)
+    @Exclude
     fun isStudent(): Boolean = !isAdmin()
 }
 
@@ -190,7 +194,10 @@ data class TestAttempt(
     val wrongAnswers: Int = 0,
     val percentage: Double = 0.0,
     val answers: Map<String, Int> = emptyMap(),
-    val submittedAt: Timestamp = Timestamp.now()
+    val submittedAt: Timestamp = Timestamp.now(),
+    // Snapshots keep result grouping stable if the student or test metadata changes later.
+    val stream: String = "",
+    val maxScore: Int = 0
 )
 
 /**

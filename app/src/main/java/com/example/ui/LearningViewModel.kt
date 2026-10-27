@@ -63,6 +63,18 @@ class LearningViewModel(
 
     private val _testAttempts = MutableStateFlow<List<TestAttempt>>(emptyList())
     val testAttempts: StateFlow<List<TestAttempt>> = _testAttempts.asStateFlow()
+    private val _isLoadingTestAttempts = MutableStateFlow(false)
+    val isLoadingTestAttempts: StateFlow<Boolean> = _isLoadingTestAttempts.asStateFlow()
+    private val _testAttemptsError = MutableStateFlow<String?>(null)
+    val testAttemptsError: StateFlow<String?> = _testAttemptsError.asStateFlow()
+
+    private val _adminStudentAttempts = MutableStateFlow<List<TestAttempt>>(emptyList())
+    val adminStudentAttempts: StateFlow<List<TestAttempt>> = _adminStudentAttempts.asStateFlow()
+    private val _isLoadingAdminStudentAttempts = MutableStateFlow(false)
+    val isLoadingAdminStudentAttempts: StateFlow<Boolean> = _isLoadingAdminStudentAttempts.asStateFlow()
+    private val _adminStudentAttemptsError = MutableStateFlow<String?>(null)
+    val adminStudentAttemptsError: StateFlow<String?> = _adminStudentAttemptsError.asStateFlow()
+    private val _selectedAdminStudentUid = MutableStateFlow<String?>(null)
 
     // Learning Activity Counters
     private val _videosWatched = MutableStateFlow(0)
@@ -131,6 +143,14 @@ class LearningViewModel(
         _mockTests.value = emptyList()
         _pyqs.value = emptyList()
         _feedbackList.value = emptyList()
+        _testAttempts.value = emptyList()
+        _isLoadingTestAttempts.value = false
+        _testAttemptsError.value = null
+        clearAdminStudentAttempts()
+        _videosWatched.value = 0
+        _studyMaterialsOpened.value = 0
+        _recordedClassesWatched.value = 0
+        _pyqsViewed.value = 0
         _quizState.value = QuizState()
     }
 
@@ -147,7 +167,7 @@ class LearningViewModel(
         }
         viewModelScope.launch {
             _authState.value = AuthState.Loading
-            repository.signUp(name, email, phone, stream, "student", photoUrl, password)
+            repository.signUp(name.trim(), email.trim(), phone.trim(), stream, "student", photoUrl, password)
                 .onSuccess { profile ->
                     _authState.value = AuthState.Success(profile)
                     showMessage("Signed up successfully! Status: ${profile.status.uppercase()}")
@@ -166,7 +186,7 @@ class LearningViewModel(
         }
         viewModelScope.launch {
             _authState.value = AuthState.Loading
-            repository.login(identifier, password)
+            repository.login(identifier.trim(), password)
                 .onSuccess { profile ->
                     _authState.value = AuthState.Success(profile)
                     showMessage("Logged in successfully as ${profile.name}!")
@@ -239,9 +259,9 @@ class LearningViewModel(
     // Content loading based on roles
     fun loadContent() {
         viewModelScope.launch {
-            _isLoadingContent.value = true
             val currentUser = repository.currentUser.value ?: return@launch
-            
+            _isLoadingContent.value = true
+            try {
             if (currentUser.isAdmin()) {
                 // Admin loads everything
                 _students.value = repository.getStudents()
@@ -269,15 +289,82 @@ class LearningViewModel(
                 }
                 loadAttempts()
             }
-            _isLoadingContent.value = false
+            } finally {
+                _isLoadingContent.value = false
+            }
         }
     }
 
     fun loadAttempts() {
-        viewModelScope.launch {
-            val uid = repository.currentUser.value?.uid ?: ""
-            _testAttempts.value = repository.getTestAttempts(uid)
+        val user = repository.currentUser.value
+        if (user == null || user.role == "admin" || user.isAdmin() || user.uid.isBlank()) {
+            _testAttemptsError.value = "Sign in as a student to view your test results."
+            return
         }
+
+        _isLoadingTestAttempts.value = true
+        _testAttemptsError.value = null
+        viewModelScope.launch {
+            try {
+                repository.getTestAttempts(user.uid)
+                    .onSuccess { attempts ->
+                        if (repository.currentUser.value?.uid == user.uid) {
+                            _testAttempts.value = attempts
+                        }
+                    }
+                    .onFailure { error ->
+                        _testAttemptsError.value = error.localizedMessage ?: "Could not load your test results."
+                    }
+            } finally {
+                _isLoadingTestAttempts.value = false
+            }
+        }
+    }
+
+    fun loadAdminStudentAttempts(studentUid: String) {
+        val admin = repository.currentUser.value
+        if (admin == null || !(admin.role == "admin" || admin.isAdmin())) {
+            _adminStudentAttemptsError.value = "Administrator access is required to view student results."
+            return
+        }
+        if (studentUid.isBlank() || _students.value.none { it.uid == studentUid && it.role == "student" }) {
+            _adminStudentAttemptsError.value = "Select a valid student to view results."
+            return
+        }
+
+        _selectedAdminStudentUid.value = studentUid
+        _adminStudentAttempts.value = emptyList()
+        _isLoadingAdminStudentAttempts.value = true
+        _adminStudentAttemptsError.value = null
+        viewModelScope.launch {
+            try {
+                repository.getTestAttempts(studentUid)
+                    .onSuccess { attempts ->
+                        if (_selectedAdminStudentUid.value == studentUid &&
+                            repository.currentUser.value?.let { it.role == "admin" || it.isAdmin() } == true
+                        ) {
+                            _adminStudentAttempts.value = attempts.filter { it.userId == studentUid }
+                        }
+                    }
+                    .onFailure { error ->
+                        if (_selectedAdminStudentUid.value == studentUid) {
+                            _adminStudentAttemptsError.value = error.localizedMessage
+                                ?: "Could not load this student's test results."
+                        }
+                    }
+            } finally {
+                if (_selectedAdminStudentUid.value == studentUid) {
+                    _isLoadingAdminStudentAttempts.value = false
+                }
+            }
+        }
+    }
+
+    fun clearAdminStudentAttempts() {
+        _selectedAdminStudentUid.value = null
+        _adminStudentAttempts.value = emptyList()
+        _isLoadingAdminStudentAttempts.value = false
+        _adminStudentAttemptsError.value = null
     }
 
     // ADMIN ACTION: Update student status
@@ -669,7 +756,12 @@ class LearningViewModel(
     fun submitQuiz() {
         val current = _quizState.value
         val test = current.activeTest ?: return
+        if (current.isSubmitted) return
         val user = currentUser.value
+        if (user == null || user.uid.isBlank()) {
+            showMessage("Sign in before submitting a test.")
+            return
+        }
         var calculatedScore = 0
         var correctCount = 0
         var wrongCount = 0
@@ -688,23 +780,25 @@ class LearningViewModel(
         }
 
         val elapsedMs = if (current.startTimeMillis > 0) System.currentTimeMillis() - current.startTimeMillis else 0L
-        val calculatedTimeTakenSec = (elapsedMs / 1000).coerceAtLeast(12L)
+        val calculatedTimeTakenSec = (elapsedMs / 1000).coerceAtLeast(0L)
 
         val percentage = if (totalQ > 0) (correctCount.toDouble() / totalQ.toDouble()) * 100.0 else 0.0
 
         val attempt = TestAttempt(
             id = java.util.UUID.randomUUID().toString(),
-            userId = user?.uid ?: "student_user",
+            userId = user.uid,
             testId = test.id,
             testTitle = test.title,
-            subject = test.subject.ifBlank { test.domain.ifBlank { test.stream } },
+            subject = test.subject.ifBlank { test.domain },
             score = calculatedScore,
             totalQuestions = totalQ,
             correctAnswers = correctCount,
             wrongAnswers = wrongCount,
             percentage = percentage,
             answers = current.selectedAnswers.mapKeys { it.key.toString() },
-            submittedAt = com.google.firebase.Timestamp.now()
+            submittedAt = com.google.firebase.Timestamp.now(),
+            stream = user.stream.ifBlank { test.stream },
+            maxScore = totalQ * 4
         )
 
         // Update the visible attempt history immediately so completed tests disappear
@@ -712,6 +806,7 @@ class LearningViewModel(
         _testAttempts.value = _testAttempts.value
             .filterNot { it.id == attempt.id }
             .plus(attempt)
+        _testAttemptsError.value = null
 
         _quizState.value = current.copy(
             isSubmitted = true,
@@ -725,8 +820,14 @@ class LearningViewModel(
         )
 
         viewModelScope.launch {
-            repository.saveTestAttempt(attempt)
-            loadAttempts()
+            val saveResult = repository.saveTestAttempt(attempt)
+            if (saveResult.isFailure) {
+                val error = saveResult.exceptionOrNull()
+                _testAttemptsError.value = error?.localizedMessage ?: "Could not save your test result."
+                showMessage("Could not sync your result: ${error?.localizedMessage ?: "Please try again."}")
+            } else {
+                loadAttempts()
+            }
         }
 
         showMessage("Exam Submitted! Correct: $correctCount, Wrong: $wrongCount, Score: $calculatedScore Marks (${String.format("%.1f", percentage)}%)")

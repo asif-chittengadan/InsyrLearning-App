@@ -26,7 +26,8 @@ class GreetingScreenshotTest {
         AuthScreen(
           errorMsg = null,
           onLogin = { _, _ -> },
-          onSignUp = { _, _, _, _, _, _ -> }
+          onSignUp = { _, _, _, _, _, _ -> },
+          onGoogleSignIn = { }
         )
       }
     }

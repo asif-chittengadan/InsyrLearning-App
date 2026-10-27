@@ -3,7 +3,6 @@ package com.example.data
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
@@ -55,7 +54,7 @@ interface LearningRepository {
     // Student Actions
     suspend fun submitFeedback(message: String): Result<Unit>
     suspend fun saveTestAttempt(attempt: TestAttempt): Result<Unit>
-    suspend fun getTestAttempts(userId: String): List<TestAttempt>
+    suspend fun getTestAttempts(userId: String): Result<List<TestAttempt>>
 }
 
 class AppLearningRepository : LearningRepository {
@@ -270,6 +269,7 @@ class AppLearningRepository : LearningRepository {
                 
                 // If it is admin email but they logged in with mobile number:
                 if (isEmailAdmin && !isEmailInput) {
+                    auth.signOut()
                     throw Exception("Only the admin email (admin@insyrlearning.com) can access the Admin Dashboard.")
                 }
                 
@@ -466,25 +466,27 @@ class AppLearningRepository : LearningRepository {
 
     override suspend fun getVideos(stream: String?, module: String?, subject: String?): List<VideoContent> {
         return try {
-            if (_isFirebaseEnabled.value) {
+            val videos = if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
                 val snapshot = firestore.collection("videos").get().await()
-                val list = snapshot.toObjects(VideoContent::class.java)
-                if (!stream.isNullOrBlank() || !module.isNullOrBlank() || !subject.isNullOrBlank()) {
-                    list.filter { item ->
-                        (stream.isNullOrBlank() || item.stream.isBlank() || item.stream.equals("All", ignoreCase = true) || item.stream.equals(stream, ignoreCase = true)) &&
-                        (module.isNullOrBlank() || item.module.isBlank() || item.module.equals(module, ignoreCase = true) || item.category.equals(module, ignoreCase = true)) &&
-                        (subject.isNullOrBlank() || item.subject.isBlank() || item.subject.equals(subject, ignoreCase = true) || item.domain.equals(subject, ignoreCase = true))
-                    }
-                } else {
-                    list
+                snapshot.toObjects(VideoContent::class.java)
+            } else {
+                localVideos.toList()
+            }
+
+            if (subject.isNullOrBlank()) {
+                videos.filter { item ->
+                    item.matchesStudentStream(stream.orEmpty()) &&
+                        (module.isNullOrBlank() || item.matchesModule(module.orEmpty()))
                 }
             } else {
-                localVideos.filter { item ->
-                    (stream.isNullOrBlank() || item.stream.equals(stream, ignoreCase = true)) &&
-                    (module.isNullOrBlank() || item.module.equals(module, ignoreCase = true) || item.category.equals(module, ignoreCase = true)) &&
-                    (subject.isNullOrBlank() || item.subject.equals(subject, ignoreCase = true) || item.domain.equals(subject, ignoreCase = true))
-                }
+                filterVideosForStudentSubject(
+                    videos = videos,
+                    studentStream = stream.orEmpty(),
+                    moduleName = module.orEmpty(),
+                    subjectName = subject.orEmpty(),
+                    subjectKeywords = emptyList()
+                )
             }
         } catch (e: Exception) {
             Log.e("LearningRepository", "Error getting videos from Firestore", e)
@@ -805,7 +807,21 @@ class AppLearningRepository : LearningRepository {
             )
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("videos").document(id).set(updatedVideo).await()
+                firestore.collection("videos").document(id).update(
+                    mapOf(
+                        "title" to title,
+                        "description" to description,
+                        "url" to url,
+                        "videoUrl" to url,
+                        "category" to category,
+                        "stream" to stream,
+                        "domain" to domain,
+                        "thumbnailUrl" to thumbnailUrl,
+                        "module" to module,
+                        "subject" to subject,
+                        "contentType" to contentType
+                    )
+                ).await()
                 Result.success(Unit)
             } else {
                 val index = localVideos.indexOfFirst { it.id == id }
@@ -841,7 +857,19 @@ class AppLearningRepository : LearningRepository {
             )
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("materials").document(id).set(updatedMaterial).await()
+                firestore.collection("materials").document(id).update(
+                    mapOf(
+                        "title" to title,
+                        "fileUrl" to fileUrl,
+                        "category" to category,
+                        "stream" to stream,
+                        "domain" to domain,
+                        "module" to module,
+                        "subject" to subject,
+                        "contentType" to contentType,
+                        "description" to description
+                    )
+                ).await()
                 Result.success(Unit)
             } else {
                 val index = localMaterials.indexOfFirst { it.id == id }
@@ -876,7 +904,18 @@ class AppLearningRepository : LearningRepository {
             )
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("recordedClasses").document(id).set(updatedClass).await()
+                firestore.collection("recordedClasses").document(id).update(
+                    mapOf(
+                        "title" to title,
+                        "videoUrl" to videoUrl,
+                        "stream" to stream,
+                        "domain" to domain,
+                        "module" to module,
+                        "subject" to subject,
+                        "contentType" to contentType,
+                        "description" to description
+                    )
+                ).await()
                 Result.success(Unit)
             } else {
                 val index = localRecordedClasses.indexOfFirst { it.id == id }
@@ -913,7 +952,20 @@ class AppLearningRepository : LearningRepository {
             )
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("mockTests").document(id).set(updatedTest).await()
+                firestore.collection("mockTests").document(id).update(
+                    mapOf(
+                        "title" to title,
+                        "type" to type,
+                        "stream" to stream,
+                        "domain" to domain,
+                        "questions" to questions,
+                        "module" to module,
+                        "subject" to subject,
+                        "contentType" to contentType,
+                        "description" to description,
+                        "durationMinutes" to durationMinutes
+                    )
+                ).await()
                 Result.success(Unit)
             } else {
                 val index = localMockTests.indexOfFirst { it.id == id }
@@ -985,7 +1037,19 @@ class AppLearningRepository : LearningRepository {
             )
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("pyqs").document(id).set(updatedPYQ).await()
+                firestore.collection("pyqs").document(id).update(
+                    mapOf(
+                        "title" to title,
+                        "fileUrl" to fileUrl,
+                        "category" to category,
+                        "stream" to stream,
+                        "domain" to domain,
+                        "module" to module,
+                        "subject" to subject,
+                        "contentType" to contentType,
+                        "description" to description
+                    )
+                ).await()
                 Result.success(Unit)
             } else {
                 val index = localPYQs.indexOfFirst { it.id == id }
@@ -1053,6 +1117,10 @@ class AppLearningRepository : LearningRepository {
     }
 
     override suspend fun saveTestAttempt(attempt: TestAttempt): Result<Unit> {
+        val signedInUserId = _currentUser.value?.uid
+        if (attempt.userId.isBlank() || attempt.userId != signedInUserId) {
+            return Result.failure(IllegalArgumentException("A test result must belong to the signed-in user."))
+        }
         return try {
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
@@ -1071,31 +1139,46 @@ class AppLearningRepository : LearningRepository {
             Log.e("LearningRepository", "Error saving test attempt", e)
             localAttempts.removeAll { it.id == attempt.id }
             localAttempts.add(attempt)
-            Result.success(Unit)
+            Result.failure(e)
         }
     }
 
-    override suspend fun getTestAttempts(userId: String): List<TestAttempt> {
+    override suspend fun getTestAttempts(userId: String): Result<List<TestAttempt>> {
+        if (userId.isBlank()) {
+            return Result.failure(IllegalArgumentException("A user ID is required to load test results."))
+        }
+        val signedInUser = _currentUser.value
+        if (signedInUser == null ||
+            (signedInUser.uid != userId && signedInUser.role != "admin" && !signedInUser.isAdmin())
+        ) {
+            return Result.failure(SecurityException("You are not allowed to load these test results."))
+        }
         return try {
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                val snapshot = firestore.collection("attempts").get().await()
-                val list = snapshot.toObjects(TestAttempt::class.java)
-                val filtered = if (userId.isNotBlank()) {
-                    list.filter { it.userId == userId }
-                } else {
-                    list
+                val documents = firestore.collection("attempts")
+                    .whereEqualTo("userId", userId)
+                    .get()
+                    .await()
+                    .documents
+                val remote = documents.mapNotNull { document ->
+                    document.toObject(TestAttempt::class.java)?.copy(id = document.id)
                 }
-                if (filtered.isNotEmpty()) filtered
-                else localAttempts.filter { userId.isBlank() || it.userId == userId }
+                val remoteIds = remote.map { it.id }.toSet()
+                val pending = localAttempts.filter { it.userId == userId && it.id !in remoteIds }
+                Result.success((remote + pending).sortedBySubmissionTime())
             } else {
-                localAttempts.filter { userId.isBlank() || it.userId == userId }
+                Result.success(localAttempts.filter { it.userId == userId }.sortedBySubmissionTime())
             }
         } catch (e: Exception) {
             Log.e("LearningRepository", "Error fetching test attempts", e)
-            localAttempts.filter { userId.isBlank() || it.userId == userId }
+            Result.failure(e)
         }
     }
+
+    private fun List<TestAttempt>.sortedBySubmissionTime(): List<TestAttempt> =
+        sortedWith(compareByDescending<TestAttempt> { it.submittedAt.seconds }
+            .thenByDescending { it.submittedAt.nanoseconds })
 
     override suspend fun uploadFile(uri: android.net.Uri, context: android.content.Context): Result<String> {
         android.util.Log.d("StorageUpload", "Selected Uri: $uri")
@@ -1137,7 +1220,7 @@ class AppLearningRepository : LearningRepository {
                 
                 val mimeType = context.contentResolver.getType(uri) ?: ""
                 val folder = if (mimeType.contains("video", ignoreCase = true) || fileName.endsWith(".mp4", ignoreCase = true)) "videos" else "materials"
-                val ref = storage.reference.child("$folder/$fileName")
+                val ref = storage.reference.child("$folder/${System.currentTimeMillis()}_$fileName")
                 
                 android.util.Log.d("StorageUpload", "Upload started for $uri to Storage path: ${ref.path}")
                 
@@ -1257,7 +1340,16 @@ class AppLearningRepository : LearningRepository {
         return try {
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()
-                firestore.collection("users").document(profile.uid).set(profile, SetOptions.merge()).await()
+                firestore.collection("users").document(profile.uid).update(
+                    mapOf(
+                        "name" to profile.name,
+                        "phone" to profile.phone,
+                        "mobile" to profile.mobile,
+                        "photoUrl" to profile.photoUrl,
+                        "stream" to profile.stream,
+                        "exam" to profile.exam
+                    )
+                ).await()
             }
             
             // Update local users list if matching
@@ -1272,16 +1364,7 @@ class AppLearningRepository : LearningRepository {
             appContext?.let { saveSessionToPrefs(it, profile) }
             Result.success(profile)
         } catch (e: Exception) {
-            // Offline/Fallback update
-            val index = localUsers.indexOfFirst { it.uid == profile.uid }
-            if (index != -1) {
-                localUsers[index] = profile
-            } else {
-                localUsers.add(profile)
-            }
-            _currentUser.value = profile
-            appContext?.let { saveSessionToPrefs(it, profile) }
-            Result.success(profile)
+            Result.failure(e)
         }
     }
     override suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> {

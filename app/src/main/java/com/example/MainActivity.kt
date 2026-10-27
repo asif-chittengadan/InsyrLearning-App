@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -60,6 +61,8 @@ import com.example.ui.AuthState
 import com.example.ui.LearningViewModel
 import com.example.ui.QuizState
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.results.AdminTestResultsScreen
+import com.example.ui.results.StudentTestResultsScreen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import androidx.credentials.CredentialManager
@@ -76,7 +79,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 
 class MainActivity : ComponentActivity() {
-    private val viewModel = LearningViewModel()
+    private val viewModel: LearningViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1381,6 +1384,9 @@ fun StudentApprovedFlow(
     val videos by viewModel.videos.collectAsState()
     val materials by viewModel.materials.collectAsState()
     val mockTests by viewModel.mockTests.collectAsState()
+    val testAttempts by viewModel.testAttempts.collectAsState()
+    val isLoadingTestAttempts by viewModel.isLoadingTestAttempts.collectAsState()
+    val testAttemptsError by viewModel.testAttemptsError.collectAsState()
     val quizState by viewModel.quizState.collectAsState()
     val recordedClasses by viewModel.recordedClasses.collectAsState()
     val pyqs by viewModel.pyqs.collectAsState()
@@ -1388,8 +1394,7 @@ fun StudentApprovedFlow(
 
     // Filter content based on student's selected stream from Firestore
     val streamFilteredVideos = remember(videos, studentProfile.stream) {
-        if (studentProfile.stream.isBlank()) videos
-        else videos.filter { it.stream.isBlank() || it.stream.equals("All", ignoreCase = true) || it.stream.equals(studentProfile.stream, ignoreCase = true) }
+        videos.filter { it.matchesStudentStream(studentProfile.stream) }
     }
     val streamFilteredMaterials = remember(materials, studentProfile.stream) {
         if (studentProfile.stream.isBlank()) materials
@@ -1412,6 +1417,7 @@ fun StudentApprovedFlow(
     val activeTab = when (currentScreen) {
         "learn", "all_videos", "all_materials" -> "learn"
         "all_quizzes" -> "all_quizzes"
+        "results" -> "results"
         else -> "home"
     }
 
@@ -1420,7 +1426,7 @@ fun StudentApprovedFlow(
     var showHelpDialog by remember { mutableStateOf(false) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
 
-    val isTabScreen = currentScreen in listOf("home", "learn", "all_quizzes") && !isFullScreenActive && !isDrawerOpen
+    val isTabScreen = currentScreen in listOf("home", "learn", "all_quizzes", "results") && !isFullScreenActive && !isDrawerOpen
 
     if (showHelpDialog) {
         StudentHelpSupportDialog(
@@ -1456,7 +1462,8 @@ fun StudentApprovedFlow(
                         listOf(
                             NavigationTabItem("home", "Home", Icons.Filled.Home, Icons.Outlined.Home),
                             NavigationTabItem("learn", "Learn", Icons.Filled.School, Icons.Outlined.School),
-                            NavigationTabItem("all_quizzes", "Mock Tests", Icons.Filled.Assignment, Icons.Outlined.Assignment)
+                            NavigationTabItem("all_quizzes", "Mock Tests", Icons.Filled.Assignment, Icons.Outlined.Assignment),
+                            NavigationTabItem("results", "Results", Icons.Filled.Assessment, Icons.Outlined.Assessment)
                         ).forEach { tab ->
                             val isSelected = activeTab == tab.id
                             InteractiveNavigationBarItem(
@@ -1526,7 +1533,6 @@ fun StudentApprovedFlow(
                         )
                     }
                     "all_quizzes" -> {
-                        val testAttempts = viewModel.testAttempts.collectAsState(initial = emptyList()).value
                         StudentFullStreamMockExamsScreen(
                             studentStream = studentProfile.stream,
                             mockTests = mockTests,
@@ -1540,6 +1546,18 @@ fun StudentApprovedFlow(
                                 viewModel.updateUserProfile(studentProfile.copy(stream = newStream))
                             },
                             onFullscreenStateChanged = { isFullScreenActive = it }
+                        )
+                    }
+                    "results" -> {
+                        LaunchedEffect(studentProfile.uid) {
+                            viewModel.loadAttempts()
+                        }
+                        StudentTestResultsScreen(
+                            attempts = testAttempts,
+                            tests = mockTests,
+                            isLoading = isLoadingTestAttempts,
+                            errorMessage = testAttemptsError,
+                            onRefresh = { viewModel.loadAttempts() }
                         )
                     }
                     "profile" -> {
@@ -1830,6 +1848,13 @@ fun StudentLeftDrawerContent(
                 )
 
                 StudentDrawerItem(
+                    label = "Results",
+                    icon = Icons.Default.Assessment,
+                    isSelected = currentScreen == "results",
+                    onClick = { onNavigate("results") }
+                )
+
+                StudentDrawerItem(
                     label = "My Profile",
                     icon = Icons.Default.Person,
                     isSelected = currentScreen == "profile",
@@ -2059,12 +2084,16 @@ fun StudentLearnHubScreen(
 
     // Helpers to filter resources for a subject
     fun filterVideosForSubject(subj: SubjectConfig): List<VideoContent> {
-        val streamFiltered = videos.filter { v -> v.stream.isBlank() || v.stream.equals("All", true) || v.stream.equals(effectiveStream, true) }
-        val matches = streamFiltered.filter { v ->
-            subj.keywords.any { kw -> v.title.contains(kw, true) || v.description.contains(kw, true) || v.category.contains(kw, true) || v.domain.contains(kw, true) || v.subject.contains(kw, true) } ||
-                    v.domain.contains(subj.name, true) || v.subject.contains(subj.name, true) || v.title.contains(subj.name, true)
-        }
-        return if (matches.isNotEmpty()) matches else streamFiltered
+        return filterVideosForStudentSubject(
+            videos = videos,
+            studentStream = effectiveStream,
+            moduleName = currentModule?.title.orEmpty(),
+            subjectName = subj.name,
+            subjectKeywords = subj.keywords,
+            otherSubjectTerms = currentModule?.subjects.orEmpty()
+                .filterNot { it.id == subj.id }
+                .flatMap { listOf(it.name) + it.keywords }
+        )
     }
 
     fun filterMaterialsForSubject(subj: SubjectConfig): List<StudyMaterial> {
@@ -2443,7 +2472,9 @@ fun StudentLearnHubScreen(
                     val mod = currentModule ?: modules.first()
                     val subj = currentSubject ?: mod.subjects.first()
 
-                    val vList = remember(subj) { filterVideosForSubject(subj) }
+                    val vList = remember(videos, effectiveStream, currentModule?.title, subj) {
+                        filterVideosForSubject(subj)
+                    }
                     val mList = remember(subj) { filterMaterialsForSubject(subj) }
                     val cList = remember(subj) { filterClassesForSubject(subj) }
                     val tList = remember(subj) { filterMockTestsForSubject(subj) }
@@ -7132,18 +7163,36 @@ fun QuizPlayerScreen(
         return
     }
     val totalQuestions = test.questions.size
-    val currentIdx = state.currentQuestionIndex
+    if (totalQuestions == 0) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("This test has no questions yet.", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(onClick = onExit) { Text("Back") }
+        }
+        return
+    }
+    val currentIdx = state.currentQuestionIndex.coerceIn(0, totalQuestions - 1)
     val currentQuestion = test.questions[currentIdx]
 
-    var timeLeftSeconds by remember(test.id) {
-        mutableStateOf(test.durationMinutes * 60)
+    val totalSeconds = test.durationMinutes * 60
+    fun secondsRemaining(): Int {
+        if (state.startTimeMillis <= 0L) return totalSeconds
+        val elapsed = ((System.currentTimeMillis() - state.startTimeMillis) / 1000).toInt()
+        return (totalSeconds - elapsed).coerceIn(0, totalSeconds)
+    }
+    var timeLeftSeconds by remember(test.id, state.startTimeMillis) {
+        mutableStateOf(secondsRemaining())
     }
 
     LaunchedEffect(key1 = test.id, key2 = state.isSubmitted) {
         if (test.durationMinutes > 0 && !state.isSubmitted) {
             while (timeLeftSeconds > 0) {
                 kotlinx.coroutines.delay(1000)
-                timeLeftSeconds--
+                timeLeftSeconds = secondsRemaining()
             }
             onSubmit()
         }
@@ -8164,6 +8213,18 @@ fun isYouTubeUrl(url: String): Boolean {
     return clean.contains("youtube.com") || clean.contains("youtu.be")
 }
 
+fun openExternalUrl(context: android.content.Context, url: String) {
+    try {
+        val intent = android.content.Intent(
+            android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse(ensureFirebaseDownloadUrl(url))
+        ).apply { flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "No app available to open this link.", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
 fun openYouTubeVideo(context: android.content.Context, url: String) {
     var clean = url.trim()
     if (clean.isEmpty()) {
@@ -8174,7 +8235,7 @@ fun openYouTubeVideo(context: android.content.Context, url: String) {
         clean = "https://$clean"
     }
     if (!isYouTubeUrl(clean)) {
-        android.widget.Toast.makeText(context, "Invalid YouTube URL format.", android.widget.Toast.LENGTH_LONG).show()
+        openExternalUrl(context, clean)
         return
     }
     val uri = android.net.Uri.parse(clean)
@@ -8215,7 +8276,7 @@ fun openGoogleDriveDocument(context: android.content.Context, url: String) {
         clean = "https://$clean"
     }
     if (!isGoogleDriveUrl(clean)) {
-        android.widget.Toast.makeText(context, "Invalid Google Drive URL format.", android.widget.Toast.LENGTH_LONG).show()
+        openExternalUrl(context, clean)
         return
     }
     val uri = android.net.Uri.parse(clean)
@@ -8243,7 +8304,12 @@ fun downloadPdf(context: android.content.Context, urlString: String, title: Stri
             setTitle(title)
             setDescription("Downloading PDF study material...")
             setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, "$title.pdf")
+            val safeName = title.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "download" } + ".pdf"
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, safeName)
+            } else {
+                setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, safeName)
+            }
             setAllowedOverMetered(true)
             setAllowedOverRoaming(true)
         }
@@ -8737,6 +8803,7 @@ fun InAppPdfViewer(
                                             request: android.webkit.WebResourceRequest?,
                                             error: android.webkit.WebResourceError?
                                         ) {
+                                            if (request?.isForMainFrame != true) return
                                             hasError = true
                                             errorMessage = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                                                 error?.description?.toString()
@@ -8990,6 +9057,10 @@ fun AdminFlow(
     val mockTests by viewModel.mockTests.collectAsState()
     val recordedClasses by viewModel.recordedClasses.collectAsState()
     val feedbackList by viewModel.feedbackList.collectAsState()
+    val isLoadingContent by viewModel.isLoadingContent.collectAsState()
+    val adminStudentAttempts by viewModel.adminStudentAttempts.collectAsState()
+    val isLoadingAdminStudentAttempts by viewModel.isLoadingAdminStudentAttempts.collectAsState()
+    val adminStudentAttemptsError by viewModel.adminStudentAttemptsError.collectAsState()
 
     var isSidebarOpen by remember { mutableStateOf(false) }
     var isUploadingShowing by remember { mutableStateOf(false) }
@@ -9001,6 +9072,7 @@ fun AdminFlow(
         "content" -> "content"
         "feedback" -> "feedback"
         "mock_tests" -> "mock_tests"
+        "test_results" -> "test_results"
         "reports" -> "reports"
         "settings" -> "settings"
         "quiz" -> "quiz"
@@ -9264,6 +9336,19 @@ fun AdminFlow(
                                 feedback = feedbackList
                             )
                         }
+                        "test_results" -> {
+                            AdminTestResultsScreen(
+                                students = students,
+                                isLoadingStudents = isLoadingContent,
+                                tests = mockTests,
+                                attempts = adminStudentAttempts,
+                                isLoadingAttempts = isLoadingAdminStudentAttempts,
+                                attemptsError = adminStudentAttemptsError,
+                                onSelectStudent = { studentUid -> viewModel.loadAdminStudentAttempts(studentUid) },
+                                onRefreshAttempts = { studentUid -> viewModel.loadAdminStudentAttempts(studentUid) },
+                                onClearSelectedStudent = { viewModel.clearAdminStudentAttempts() }
+                            )
+                        }
                         "settings" -> {
                             AdminSettingsTab(viewModel = viewModel)
                         }
@@ -9501,6 +9586,7 @@ fun SidebarContent(
                     Triple("approvals", "Approvals", Icons.Default.CheckCircle),
                     Triple("content", "Content Manager", Icons.Default.LibraryBooks),
                     Triple("mock_tests", "Mock Tests", Icons.Default.Assignment),
+                    Triple("test_results", "Test Results", Icons.Default.Assessment),
                     Triple("feedback", "Feedback", Icons.Default.Comment),
                     Triple("reports", "Reports", Icons.Default.BarChart),
                     Triple("settings", "Settings", Icons.Default.Settings)
@@ -16140,11 +16226,10 @@ fun StreamContentPage(
                                                 material = mat,
                                                 onView = { showViewDialog = mat },
                                                 onDownload = {
-                                                    isDownloadingId = mat.id
-                                                    kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                                        kotlinx.coroutines.delay(1500)
-                                                        isDownloadingId = null
-                                                        android.widget.Toast.makeText(context, "Downloaded '${mat.title}' PDF successfully!", android.widget.Toast.LENGTH_LONG).show()
+                                                    if (isGoogleDriveUrl(mat.fileUrl)) {
+                                                        openGoogleDriveDocument(context, mat.fileUrl)
+                                                    } else {
+                                                        downloadPdf(context, ensureFirebaseDownloadUrl(mat.fileUrl), mat.title)
                                                     }
                                                 },
                                                 isDownloading = isDownloadingId == mat.id,
@@ -16380,11 +16465,10 @@ fun StreamContentPage(
                         onDismiss = { showViewDialog = null },
                         onDownload = {
                             showViewDialog = null
-                            isDownloadingId = item.id
-                            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                                kotlinx.coroutines.delay(1500)
-                                isDownloadingId = null
-                                android.widget.Toast.makeText(context, "Downloaded '${item.title}' PDF successfully!", android.widget.Toast.LENGTH_LONG).show()
+                            if (isGoogleDriveUrl(item.fileUrl)) {
+                                openGoogleDriveDocument(context, item.fileUrl)
+                            } else {
+                                downloadPdf(context, ensureFirebaseDownloadUrl(item.fileUrl), item.title)
                             }
                         }
                     )
