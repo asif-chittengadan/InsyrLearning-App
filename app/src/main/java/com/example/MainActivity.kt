@@ -97,6 +97,16 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+fun BackIconButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    androidx.activity.compose.BackHandler(onBack = onClick)
+    IconButton(onClick = onClick, modifier = modifier, content = content)
+}
+
 // Geometric Balance Design Color Tokens
 object GeoPalette {
     val Background = Color(0xFFFFFFFF) // Clean white background per INSYR branding
@@ -487,6 +497,7 @@ fun MainAppScreen(viewModel: LearningViewModel) {
                 modifier = Modifier
                     .fillMaxSize()
                     .background(GeoPalette.Background)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
             ) {
             when (val state = authState) {
                 is AuthState.Idle, is AuthState.Error -> {
@@ -1465,6 +1476,17 @@ fun StudentApprovedFlow(
         )
     }
 
+    androidx.activity.compose.BackHandler(enabled = !isDrawerOpen && currentScreen != "home") {
+        when (currentScreen) {
+            "quiz" -> {
+                viewModel.exitQuiz()
+                onNavigate("all_quizzes")
+            }
+            "video_player", "material_reader" -> onNavigate("learn")
+            else -> onNavigate("home")
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
@@ -1645,6 +1667,7 @@ fun StudentApprovedFlow(
 
         // Full-screen Drawer Backdrop / Scrim (obscures both top bar and bottom navigation bar)
         if (isDrawerOpen) {
+            androidx.activity.compose.BackHandler { isDrawerOpen = false }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2165,7 +2188,7 @@ fun StudentLearnHubScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = {
                     if (selectedCategoryId != null) {
                         selectedCategoryId = null
@@ -3144,7 +3167,7 @@ fun StudentProfileScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                IconButton(
+                BackIconButton(
                     onClick = { onNavigate("home") },
                     modifier = Modifier.size(38.dp)
                 ) {
@@ -4052,7 +4075,7 @@ fun GeneralStreamDashboardHome(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                OutlinedIconButton(
+                IconButton(
                     onClick = {
                         if (activeSubject != null && activeModule != "Teaching Aptitude") {
                             activeSubject = null
@@ -4061,9 +4084,12 @@ fun GeneralStreamDashboardHome(
                             activeSubject = null
                         }
                     },
-                    modifier = Modifier.size(38.dp),
-                    shape = RoundedCornerShape(10.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, GeoPalette.CardBorder)
+                    modifier = Modifier
+                        .size(38.dp)
+                        .border(
+                            androidx.compose.foundation.BorderStroke(1.dp, GeoPalette.CardBorder),
+                            RoundedCornerShape(10.dp)
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -6460,7 +6486,7 @@ fun StudentFullStreamMockExamsScreen(
                         .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onBack) {
+                    BackIconButton(onClick = onBack) {
                         Icon(
                             imageVector = Icons.Default.ArrowBack,
                             contentDescription = "Back",
@@ -6925,7 +6951,7 @@ fun StudentMockTestsList(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                IconButton(onClick = handleBack) {
+                BackIconButton(onClick = handleBack) {
                     Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
                 }
                 Text(
@@ -7554,7 +7580,7 @@ fun StudentVideosList(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = onBack,
                 modifier = Modifier
                     .size(40.dp)
@@ -8429,7 +8455,7 @@ fun StudentVideoPlayer(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(onClick = onBack) {
+            BackIconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
             }
             Text("Lecture Player", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -8580,7 +8606,7 @@ fun StudentMaterialsList(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(onClick = onBack) {
+            BackIconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
             }
             Text("Study Material Notes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -8866,7 +8892,7 @@ fun StudentMaterialReader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(onClick = onBack) {
+            BackIconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Default.ArrowBack, "Back")
             }
             Text("Study Material Notes", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -8968,7 +8994,7 @@ fun StudentFeedbackScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = onBack,
                 modifier = Modifier.size(40.dp)
             ) {
@@ -9100,6 +9126,10 @@ fun AdminFlow(
         else -> "dashboard"
     }
 
+    androidx.activity.compose.BackHandler(enabled = activeTab != "dashboard") {
+        onTabChange("dashboard")
+    }
+
     BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.White)) {
         val isWideScreen = maxWidth >= 850.dp
 
@@ -9157,7 +9187,7 @@ fun AdminFlow(
                                     )
                                 }
                             } else {
-                                IconButton(
+                                BackIconButton(
                                     onClick = { onTabChange("dashboard") },
                                     modifier = Modifier.testTag("admin_back_to_dashboard")
                                 ) {
@@ -9501,6 +9531,7 @@ fun AdminFlow(
         }
 
         // Sliding Navigation Drawer Sidebar for Mobile
+        androidx.activity.compose.BackHandler(enabled = isSidebarOpen) { isSidebarOpen = false }
         if (!isWideScreen) {
             // Dark Backdrop Overlay
             AnimatedVisibility(
@@ -11559,7 +11590,7 @@ fun AdminContentTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
+                    BackIconButton(
                         onClick = onBackToDashboard,
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -11728,7 +11759,7 @@ fun AdminContentTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
+                    BackIconButton(
                         onClick = { selectedStream = null },
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -12045,7 +12076,7 @@ fun AdminContentTab(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    IconButton(
+                    BackIconButton(
                         onClick = { selectedModule = null },
                         modifier = Modifier.size(44.dp)
                     ) {
@@ -12290,7 +12321,7 @@ fun AdminContentTab(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        IconButton(
+                        BackIconButton(
                             onClick = { quickAddType = null },
                             modifier = Modifier
                                 .size(36.dp)
@@ -13033,7 +13064,7 @@ fun UploadContentPage(
                 .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -13821,7 +13852,7 @@ fun EditContentPage(
                 .padding(vertical = 12.dp),
             contentAlignment = Alignment.Center
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = onBack,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -14682,7 +14713,7 @@ fun StreamContentPageNew(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                IconButton(
+                BackIconButton(
                     onClick = onBack,
                     modifier = Modifier.size(44.dp)
                 ) {
@@ -16033,7 +16064,7 @@ fun StreamContentPage(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            IconButton(
+            BackIconButton(
                 onClick = onBack,
                 modifier = Modifier
                     .size(40.dp)
@@ -18376,7 +18407,7 @@ fun FullPageDetailsView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                IconButton(
+                BackIconButton(
                     onClick = onBack,
                     modifier = Modifier.size(44.dp)
                 ) {
