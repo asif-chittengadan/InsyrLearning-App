@@ -395,6 +395,7 @@ fun MainAppScreen(viewModel: LearningViewModel) {
     val context = LocalContext.current
     val authState by viewModel.authState.collectAsState()
     val userMessage by viewModel.userMessage.collectAsState()
+    val isRestoringSession by viewModel.isRestoringSession.collectAsState()
 
     // Screen navigation tracking
     // Student: "home", "quiz", "video_player", "material_reader", "feedback_form", "all_videos", "all_materials", "all_quizzes"
@@ -489,7 +490,27 @@ fun MainAppScreen(viewModel: LearningViewModel) {
             ) {
             when (val state = authState) {
                 is AuthState.Idle, is AuthState.Error -> {
-                    AuthScreen(
+                    if (isRestoringSession) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(24.dp)
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.insyr_logo),
+                                    contentDescription = "INSYR Learning Logo",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.width(200.dp)
+                                )
+                                CircularProgressIndicator(color = GeoPalette.Primary)
+                            }
+                        }
+                    } else AuthScreen(
                         errorMsg = (state as? AuthState.Error)?.message,
                         onLogin = { identifier, password -> viewModel.login(identifier, password) },
                         onSignUp = { name, email, phone, stream, photoUrl, password ->

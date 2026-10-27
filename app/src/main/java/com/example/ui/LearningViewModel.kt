@@ -129,9 +129,19 @@ class LearningViewModel(
         _userMessage.value = null
     }
 
+    private val _isRestoringSession = MutableStateFlow(true)
+    val isRestoringSession: StateFlow<Boolean> = _isRestoringSession.asStateFlow()
+    private var sessionRestoreStarted = false
+
     fun restoreSession(context: android.content.Context) {
+        if (sessionRestoreStarted) return
+        sessionRestoreStarted = true
         viewModelScope.launch {
-            repository.tryRestoreSession(context)
+            try {
+                repository.tryRestoreSession(context)
+            } finally {
+                _isRestoringSession.value = false
+            }
         }
     }
 

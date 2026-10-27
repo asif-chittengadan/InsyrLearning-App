@@ -1284,7 +1284,11 @@ class AppLearningRepository : LearningRepository {
                 if (_isFirebaseEnabled.value) {
                     val auth = FirebaseAuth.getInstance()
                     val currentFirebaseUser = auth.currentUser
-                    if (currentFirebaseUser != null && currentFirebaseUser.uid == savedUid) {
+                    if (currentFirebaseUser == null || currentFirebaseUser.uid != savedUid) {
+                        clearSessionFromPrefs(context)
+                        return Result.success(null)
+                    }
+                    run {
                         try {
                             val firestore = FirebaseFirestore.getInstance()
                             val doc = firestore.collection("users").document(savedUid).get().await()
