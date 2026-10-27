@@ -402,6 +402,7 @@ fun TestAttempt.maximumScoreForDisplay(): Int? = when {
 }
 
 fun TestAttempt.percentageForDisplay(): Double = when {
+    maxScore > 0 -> percentage
     percentage > 0.0 -> percentage
     totalQuestions > 0 && correctAnswers > 0 -> correctAnswers * 100.0 / totalQuestions
     else -> percentage

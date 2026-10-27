@@ -22,7 +22,7 @@ service cloud.firestore {
         && request.resource.data.status == 'pending';
       allow update: if isAdmin() || (isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['name', 'phone', 'mobile', 'photoUrl', 'password', 'stream', 'exam']));
+          .hasOnly(['name', 'phone', 'mobile', 'photoUrl', 'stream', 'exam']));
       allow delete: if isOwner(userId) || isAdmin();
     }
 

@@ -3716,7 +3716,7 @@ fun StudentHelpSupportDialog(
 
                 val faqs = listOf(
                     "Can I change my academic stream?" to "Academic streams are assigned upon administration approval. Students cannot self-modify their stream. If you need to switch streams, please contact our support team.",
-                    "How are mock tests scored?" to "Mock tests follow official NCET/CUET rules: +4 marks for correct answers, -1 for incorrect answers, and 0 for unattempted questions.",
+                    "How are mock tests scored?" to "Each correct answer earns 5 marks, each wrong answer loses 1 mark, and unattempted questions earn 0 marks.",
                     "How do I submit query feedback?" to "Use the Feedback option in your profile menu to send suggestions or report bugs directly to our administrative team.",
                     "How do I access study materials?" to "Navigate to the Learn section or All Materials tab to view and download stream-specific study modules."
                 )
@@ -6231,7 +6231,7 @@ fun StreamFullMockTestCard(
                 }
 
                 // Total marks
-                val totalMarks = mockTest.questions.size * 4
+                val totalMarks = mockTest.questions.size * 5
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = Color(0xFFF57C00), modifier = Modifier.size(16.dp))
                     Column {
@@ -6253,16 +6253,19 @@ fun StreamFullMockTestCard(
 
             // Previous attempt status if attempted
             if (lastAttempt != null) {
+                val previousScoreColor = if (lastAttempt.score < 0) Color(0xFFB42318) else Color(0xFF2E7D32)
+                val previousScoreBackground = if (lastAttempt.score < 0) Color(0xFFFFEBEE) else Color(0xFFE8F5E9)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFFE8F5E9), RoundedCornerShape(10.dp))
+                        .background(previousScoreBackground, RoundedCornerShape(10.dp))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Previous Attempt Score:", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
-                    Text("${lastAttempt.score} / ${lastAttempt.totalQuestions * 4} (${String.format("%.1f", lastAttempt.percentage)}%)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                    Text("Previous Attempt Score:", fontSize = 11.sp, color = previousScoreColor, fontWeight = FontWeight.Medium)
+                    val previousMaxScore = lastAttempt.maxScore.takeIf { it > 0 } ?: lastAttempt.totalQuestions * 4
+                    Text("${lastAttempt.score} / $previousMaxScore (${String.format("%.1f", lastAttempt.percentage)}%)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = previousScoreColor)
                 }
             }
 
@@ -6330,7 +6333,7 @@ fun MockTestRulesDialog(
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Total Marks", fontSize = 11.sp, color = GeoPalette.TextSecondary)
-                        Text("${test.questions.size * 4}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${test.questions.size * 5}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Duration", fontSize = 11.sp, color = GeoPalette.TextSecondary)
@@ -6343,7 +6346,7 @@ fun MockTestRulesDialog(
                 Text("Exam Rules & Instructions:", fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = GeoPalette.TextPrimary)
 
                 val rules = listOf(
-                    "Each correct answer carries +4 marks.",
+                    "Each correct answer carries +5 marks.",
                     "Each wrong answer will result in -1 negative marking.",
                     "Unattempted questions carry 0 marks.",
                     "Once started, the test timer cannot be paused.",
@@ -6811,7 +6814,7 @@ fun StudentMockTestsList(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Total Marks:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
-                        Text("${test.questions.size * 4} Marks (+4 / -1)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
+                        Text("${test.questions.size * 5} Marks (+5 / -1)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
                     }
 
                     Row(

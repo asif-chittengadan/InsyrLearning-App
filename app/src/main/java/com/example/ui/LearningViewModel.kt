@@ -772,27 +772,16 @@ class LearningViewModel(
             showMessage("Sign in before submitting a test.")
             return
         }
-        var calculatedScore = 0
-        var correctCount = 0
-        var wrongCount = 0
         val totalQ = test.questions.size
-
-        test.questions.forEachIndexed { idx, question ->
-            val selected = current.selectedAnswers[idx]
-            if (selected != null) {
-                if (selected == question.correctAnswerIndex) {
-                    correctCount++
-                    calculatedScore += 4 // 4 marks per correct answer
-                } else {
-                    wrongCount++
-                }
-            }
-        }
+        val scoreSummary = calculateQuizScore(test.questions, current.selectedAnswers)
+        val calculatedScore = scoreSummary.score
+        val correctCount = scoreSummary.correctAnswers
+        val wrongCount = scoreSummary.wrongAnswers
 
         val elapsedMs = if (current.startTimeMillis > 0) System.currentTimeMillis() - current.startTimeMillis else 0L
         val calculatedTimeTakenSec = (elapsedMs / 1000).coerceAtLeast(0L)
 
-        val percentage = if (totalQ > 0) (correctCount.toDouble() / totalQ.toDouble()) * 100.0 else 0.0
+        val percentage = scoreSummary.percentage
 
         val attempt = TestAttempt(
             id = java.util.UUID.randomUUID().toString(),
@@ -808,7 +797,7 @@ class LearningViewModel(
             answers = current.selectedAnswers.mapKeys { it.key.toString() },
             submittedAt = com.google.firebase.Timestamp.now(),
             stream = user.stream.ifBlank { test.stream },
-            maxScore = totalQ * 4
+            maxScore = scoreSummary.maxScore
         )
 
         // Update the visible attempt history immediately so completed tests disappear

@@ -3,6 +3,7 @@ package com.example.data
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
@@ -125,7 +126,6 @@ class AppLearningRepository : LearningRepository {
                     name = name,
                     phone = phone,
                     email = email,
-                    password = "",
                     stream = stream,
                     photoUrl = photoUrl,
                     role = actualRole,
@@ -144,7 +144,6 @@ class AppLearningRepository : LearningRepository {
                     name = name,
                     phone = phone,
                     email = email,
-                    password = "",
                     stream = stream,
                     photoUrl = photoUrl,
                     role = actualRole,
@@ -184,7 +183,6 @@ class AppLearningRepository : LearningRepository {
                         name = displayName,
                         phone = "",
                         email = email,
-                        password = "",
                         role = "student",
                         status = "pending",
                         photoUrl = photoUrl
@@ -204,7 +202,6 @@ class AppLearningRepository : LearningRepository {
                     name = "Google User Mock",
                     phone = "",
                     email = "google@mock.com",
-                    password = "",
                     role = "student",
                     status = "approved"
                 )
@@ -225,38 +222,33 @@ class AppLearningRepository : LearningRepository {
                 val firestore = FirebaseFirestore.getInstance()
                 
                 val isEmailInput = identifier.contains("@")
-                val emailToAuth = if (isEmailInput) {
-                    identifier
+                val uid = if (isEmailInput) {
+                    auth.signInWithEmailAndPassword(identifier, password).await().user?.uid
                 } else {
-                    // It's a phone number, lookup email from Firestore first
-                    val query = firestore.collection("users")
-                        .whereEqualTo("phone", identifier)
-                        .get()
+                    val response = FirebaseFunctions.getInstance()
+                        .getHttpsCallable("loginWithPhone")
+                        .call(mapOf("phone" to identifier.trim(), "password" to password))
                         .await()
-                    if (query.isEmpty) {
-                        throw Exception("No registered account found with phone number $identifier")
-                    }
-                    val userDoc = query.documents.first()
-                    val userProfile = userDoc.toObject(UserProfile::class.java)
-                    userProfile?.email ?: throw Exception("Profile contains no email associated with this phone number")
-                }
-                
-                // Try sign-in
-                val authResult = auth.signInWithEmailAndPassword(emailToAuth, password).await()
-                val uid = authResult.user?.uid ?: throw Exception("Auth login failed")
+                    val verifiedEmail = (response.data as? Map<*, *>)?.get("email") as? String
+                        ?: throw Exception("Phone sign-in failed. Check your phone number and password.")
+                    auth.signInWithEmailAndPassword(verifiedEmail, password).await().user?.uid
+                } ?: throw Exception("Sign-in failed")
                 
                 // Fetch the profile
                 val doc = firestore.collection("users").document(uid).get().await()
                 val profile = if (doc.exists()) {
                     doc.toObject(UserProfile::class.java) ?: throw Exception("User profile not found in Firestore")
                 } else {
+                    if (!isEmailInput) {
+                        auth.signOut()
+                        throw Exception("Phone sign-in failed. Check your phone number and password.")
+                    }
                     // Precreate if it was created on the fly
                     val newProfile = UserProfile(
                         uid = uid,
                         name = "Student",
                         phone = "",
-                        email = emailToAuth,
-                        password = "",
+                        email = identifier,
                         role = "student",
                         status = "pending"
                     )
@@ -267,15 +259,6 @@ class AppLearningRepository : LearningRepository {
                 // Enforce: ONLY admin@insyrlearning.com can be admin
                 val isEmailAdmin = profile.email.equals("admin@insyrlearning.com", ignoreCase = true)
                 
-                // If it is admin email but they logged in with mobile number:
-                if (isEmailAdmin && !isEmailInput) {
-                    auth.signOut()
-                    throw Exception("Only the admin email (admin@insyrlearning.com) can access the Admin Dashboard.")
-                }
-                
-                if (profile.password.isNotEmpty()) {
-                    runCatching { firestore.collection("users").document(uid).update("password", "").await() }
-                }
                 val finalProfile = if (isEmailAdmin) {
                     profile.copy(role = "admin", status = "approved")
                 } else {
@@ -286,54 +269,7 @@ class AppLearningRepository : LearningRepository {
                 appContext?.let { saveSessionToPrefs(it, finalProfile) }
                 Result.success(finalProfile)
             } else {
-                // Local state login
-                val isEmailInput = identifier.contains("@")
-                val isAdminEmail = identifier.equals("admin@insyrlearning.com", ignoreCase = true)
-                
-                val profile = if (isEmailInput) {
-                    var found = localUsers.find { it.email.equals(identifier, ignoreCase = true) }
-                    if (found == null && isAdminEmail) {
-                        // Precreate admin if not exists locally
-                        val newAdmin = UserProfile(
-                            uid = "admin123",
-                            name = "Admin Principal",
-                            phone = "9876543210",
-                            email = "admin@insyrlearning.com",
-                            password = "",
-                            role = "admin",
-                            status = "approved"
-                        )
-                        localUsers.add(newAdmin)
-                        found = newAdmin
-                    }
-                    if (found == null || found.password != password) {
-                        throw Exception("Invalid email or password")
-                    }
-                    found
-                } else {
-                    val found = localUsers.find { it.phone == identifier }
-                        ?: throw Exception("No registered account found with phone number $identifier")
-                    
-                    if (found.password != password) {
-                        throw Exception("Invalid password")
-                    }
-                    
-                    if (found.email.equals("admin@insyrlearning.com", ignoreCase = true)) {
-                        // Mobile number login should NEVER be treated as an admin login
-                        throw Exception("Only the admin email (admin@insyrlearning.com) can access the Admin Dashboard.")
-                    }
-                    found
-                }
-                
-                val finalProfile = if (profile.email.equals("admin@insyrlearning.com", ignoreCase = true)) {
-                    profile.copy(role = "admin", status = "approved")
-                } else {
-                    profile.copy(role = "student")
-                }
-                
-                _currentUser.value = finalProfile
-                appContext?.let { saveSessionToPrefs(it, finalProfile) }
-                Result.success(finalProfile)
+                throw IllegalStateException("Password sign-in requires Firebase Authentication.")
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -1318,7 +1254,6 @@ class AppLearningRepository : LearningRepository {
                     phone = sharedPref.getString("user_phone", "") ?: "",
                     mobile = sharedPref.getString("user_mobile", "") ?: "",
                     email = sharedPref.getString("user_email", "") ?: "",
-                    password = "",
                     stream = sharedPref.getString("user_stream", "") ?: "",
                     photoUrl = sharedPref.getString("user_photo_url", "") ?: "",
                     role = savedRole ?: "student",
@@ -1340,7 +1275,7 @@ class AppLearningRepository : LearningRepository {
     }
 
     override suspend fun updateUserProfile(original: UserProfile): Result<UserProfile> {
-        val profile = original.copy(password = "")
+        val profile = original
         return try {
             if (_isFirebaseEnabled.value) {
                 val firestore = FirebaseFirestore.getInstance()

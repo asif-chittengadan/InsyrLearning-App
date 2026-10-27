@@ -47,7 +47,6 @@ data class UserProfile(
     val phone: String = "", // compatible with previous phone
     val mobile: String = "", // specific mobile as requested
     val email: String = "",
-    val password: String = "",
     val stream: String = "", // e.g., "Science", "Humanities", "Commerce"
     val photoUrl: String = "",
     val role: String = "student", // "admin" or "student"

@@ -58,4 +58,16 @@ class TestAttemptPresentationTest {
         assertEquals(20, legacyAttempt.maximumScoreForDisplay())
         assertEquals(25, newAttempt.maximumScoreForDisplay())
     }
+
+    @Test
+    fun keepsZeroMarksPercentageForNewNegativeMarkingAttempt() {
+        val attempt = TestAttempt(
+            totalQuestions = 5,
+            correctAnswers = 1,
+            maxScore = 25,
+            percentage = 0.0
+        )
+
+        assertEquals(0.0, attempt.percentageForDisplay(), 0.001)
+    }
 }
