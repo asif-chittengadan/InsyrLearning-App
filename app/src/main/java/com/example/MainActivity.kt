@@ -6347,11 +6347,22 @@ fun StudentFullStreamMockExamsScreen(
         )
     }
 
-    val subjectTestsList = remember(mockTests, activeStream, searchQuery) {
+    val completedTestIds = remember(attempts) {
+        attempts.mapNotNull { it.testId.takeIf(String::isNotBlank) }.toSet()
+    }
+    val completedTestTitles = remember(attempts) {
+        attempts.filter { it.testId.isBlank() }
+            .mapNotNull { it.testTitle.takeIf(String::isNotBlank) }
+            .toSet()
+    }
+
+    val subjectTestsList = remember(mockTests, activeStream, searchQuery, completedTestIds, completedTestTitles) {
         val rawSubjectTests = mockTests.filter { test ->
             val isSubjectTest = test.contentType != "streamMockTest" && !test.type.lowercase().contains("stream") && !test.type.lowercase().contains("fulllength") && !test.type.lowercase().contains("entrance") && !test.type.lowercase().contains("full")
             val matchesStream = test.stream.isBlank() || test.stream.equals("All", ignoreCase = true) || test.stream.equals(activeStream, ignoreCase = true)
-            isSubjectTest && matchesStream
+            val hasBeenCompleted = test.id in completedTestIds ||
+                (test.id.isBlank() && test.title in completedTestTitles)
+            isSubjectTest && matchesStream && !hasBeenCompleted
         }
 
         rawSubjectTests.filter { test ->
@@ -6362,11 +6373,13 @@ fun StudentFullStreamMockExamsScreen(
         }
     }
 
-    val streamTestsList = remember(mockTests, activeStream, searchQuery) {
+    val streamTestsList = remember(mockTests, activeStream, searchQuery, completedTestIds, completedTestTitles) {
         val rawStreamTests = mockTests.filter { test ->
             val isStreamTest = test.contentType == "streamMockTest" || test.type.lowercase().contains("stream") || test.type.lowercase().contains("fulllength") || test.type.lowercase().contains("entrance") || test.type.lowercase().contains("full")
             val matchesStream = test.stream.equals(activeStream, ignoreCase = true) || test.stream.equals("All", ignoreCase = true)
-            isStreamTest && matchesStream
+            val hasBeenCompleted = test.id in completedTestIds ||
+                (test.id.isBlank() && test.title in completedTestTitles)
+            isStreamTest && matchesStream && !hasBeenCompleted
         }
 
         rawStreamTests.filter { test ->
@@ -7070,300 +7083,31 @@ fun StudentMockTestsList(
 
 @Composable
 fun QuizSubmissionResultView(
-    state: QuizState,
-    onReviewAnswers: () -> Unit,
-    onRetakeTest: () -> Unit,
     onExit: () -> Unit
 ) {
-    val test = state.activeTest ?: return
-    val totalQuestions = test.questions.size
-    val totalMarks = totalQuestions * 4
-    val score = state.score
-    val correct = state.correctCount
-    val wrong = state.wrongCount
-    val percentage = state.percentage
-
-    val performanceText = when {
-        percentage >= 80.0 -> "Outstanding Performance! 🎉"
-        percentage >= 60.0 -> "Great Job! Keep it up! 👍"
-        percentage >= 40.0 -> "Good Effort! Room for improvement. 💪"
-        else -> "Keep Practicing! You'll get better. 📚"
-    }
-
-    val performanceColor = when {
-        percentage >= 80.0 -> Color(0xFF2E7D32)
-        percentage >= 60.0 -> Color(0xFF1976D2)
-        percentage >= 40.0 -> Color(0xFFF57C00)
-        else -> Color(0xFFD32F2F)
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.Center
     ) {
-        // Exit bar
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Text(
+            text = "Test completed",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedButton(
+            onClick = onExit,
+            modifier = Modifier
+                .widthIn(min = 120.dp)
+                .heightIn(min = 48.dp)
         ) {
-            IconButton(onClick = onExit) {
-                Icon(Icons.Default.Close, "Close Results")
-            }
-            Text(
-                text = "Test Submission Result",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = GeoPalette.TextPrimary
-            )
-            Spacer(modifier = Modifier.width(48.dp))
-        }
-
-        // Hero Scorecard Box
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.5.dp, GeoPalette.Divider),
-            shape = RoundedCornerShape(24.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(performanceColor.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (percentage >= 50.0) Icons.Default.EmojiEvents else Icons.Default.School,
-                        contentDescription = null,
-                        tint = performanceColor,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-
-                Text(
-                    text = test.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = GeoPalette.TextPrimary,
-                    textAlign = TextAlign.Center
-                )
-
-                Text(
-                    text = performanceText,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 14.sp,
-                    color = performanceColor,
-                    textAlign = TextAlign.Center
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = GeoPalette.Divider.copy(alpha = 0.5f))
-
-                // The 4 required metrics cards: Score, Correct, Wrong, Percentage
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Score Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF3F4F6)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.Stars, contentDescription = null, tint = GeoPalette.Primary, modifier = Modifier.size(20.dp))
-                            Text("Score", fontSize = 11.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Medium)
-                            Text("$score / $totalMarks", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
-                        }
-                    }
-
-                    // Percentage Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.PieChart, contentDescription = null, tint = Color(0xFF1976D2), modifier = Modifier.size(20.dp))
-                            Text("Percentage", fontSize = 11.sp, color = Color(0xFF1976D2), fontWeight = FontWeight.Medium)
-                            Text("${String.format("%.1f", percentage)}%", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1976D2))
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Correct Answers Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                            Text("Correct Answers", fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
-                            Text("$correct / $totalQuestions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                        }
-                    }
-
-                    // Wrong Answers Card
-                    Card(
-                        modifier = Modifier.weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                        shape = RoundedCornerShape(16.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.Cancel, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
-                            Text("Wrong Answers", fontSize = 11.sp, color = Color(0xFFC62828), fontWeight = FontWeight.Medium)
-                            Text("$wrong / $totalQuestions", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
-                        }
-                    }
-                }
-
-                // Time Taken Card
-                val timeTakenSec = state.timeTakenSeconds
-                val formattedTimeTaken = remember(timeTakenSec, test.durationMinutes) {
-                    if (timeTakenSec > 0) {
-                        val m = timeTakenSec / 60
-                        val s = timeTakenSec % 60
-                        if (m > 0) "$m mins $s secs" else "$s secs"
-                    } else {
-                        "${test.durationMinutes} mins"
-                    }
-                }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF8E1)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Timer,
-                                contentDescription = null,
-                                tint = Color(0xFFF57F17),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = "Time Taken",
-                                fontSize = 12.sp,
-                                color = Color(0xFFF57F17),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Text(
-                            text = formattedTimeTaken,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFFF57F17)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Accuracy bar
-                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Accuracy Rate", fontSize = 12.sp, color = GeoPalette.TextSecondary, fontWeight = FontWeight.Medium)
-                        Text("${String.format("%.1f", percentage)}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = performanceColor)
-                    }
-                    LinearProgressIndicator(
-                        progress = { (percentage / 100.0).toFloat().coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(10.dp)
-                            .clip(CircleShape),
-                        color = performanceColor,
-                        trackColor = GeoPalette.Divider
-                    )
-                }
-            }
-        }
-
-        // Action Buttons
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Review Answers Button
-            Button(
-                onClick = onReviewAnswers,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp)
-                    .testTag("review_answers_button"),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = GeoPalette.Primary, contentColor = Color.White)
-            ) {
-                Icon(Icons.Default.FactCheck, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Review Answers", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            }
-
-            // Retake Test Button
-            OutlinedButton(
-                onClick = onRetakeTest,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.5.dp, GeoPalette.Primary),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = GeoPalette.Primary)
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Retake Test", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-
-            // Exit Button
-            TextButton(
-                onClick = onExit,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Back to Subject Mock Tests", color = GeoPalette.TextSecondary, fontSize = 14.sp)
-            }
+            Text("Close")
         }
     }
 }
@@ -7383,9 +7127,6 @@ fun QuizPlayerScreen(
     
     if (state.isSubmitted && !state.isReviewMode) {
         QuizSubmissionResultView(
-            state = state,
-            onReviewAnswers = onReviewAnswers,
-            onRetakeTest = onRetakeTest,
             onExit = onExit
         )
         return

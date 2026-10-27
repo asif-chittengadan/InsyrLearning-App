@@ -707,6 +707,12 @@ class LearningViewModel(
             submittedAt = com.google.firebase.Timestamp.now()
         )
 
+        // Update the visible attempt history immediately so completed tests disappear
+        // from the mock test list without waiting for the database round trip.
+        _testAttempts.value = _testAttempts.value
+            .filterNot { it.id == attempt.id }
+            .plus(attempt)
+
         _quizState.value = current.copy(
             isSubmitted = true,
             score = calculatedScore,
