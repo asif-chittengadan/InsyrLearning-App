@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
@@ -59,15 +60,31 @@ fun StudentTestResultsScreen(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var selectedSubject by rememberSaveable { mutableStateOf<String?>(null) }
+    val subjectGroups = remember(attempts, tests) { groupTestAttemptsBySubject(attempts, tests) }
+
+    LaunchedEffect(subjectGroups.keys.toList(), selectedSubject) {
+        if (selectedSubject != null && selectedSubject !in subjectGroups) selectedSubject = null
+    }
+
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            if (selectedSubject != null) {
+                IconButton(onClick = { selectedSubject = null }) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to subjects")
+                }
+            }
             Column {
-                Text("My Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text("Your completed tests", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                Text(selectedSubject ?: "My Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    if (selectedSubject == null) "Your completed tests" else "Tests in this subject",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp
+                )
             }
             IconButton(onClick = onRefresh, enabled = !isLoading) {
                 Icon(Icons.Default.Refresh, contentDescription = "Refresh results")
@@ -83,11 +100,19 @@ fun StudentTestResultsScreen(
                 title = "No test results yet",
                 description = "Completed tests will appear here."
             )
-            else -> TestAttemptSections(
-                attempts = attempts,
-                tests = tests,
-                modifier = Modifier.weight(1f)
-            )
+            else -> if (selectedSubject == null) {
+                SubjectCategoryList(
+                    subjectGroups = subjectGroups,
+                    onSubjectSelected = { selectedSubject = it },
+                    modifier = Modifier.weight(1f)
+                )
+            } else {
+                SubjectAttemptList(
+                    attempts = subjectGroups[selectedSubject].orEmpty(),
+                    tests = tests,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }
@@ -107,11 +132,17 @@ fun AdminTestResultsScreen(
 ) {
     var selectedStream by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedStudentUid by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedSubject by rememberSaveable { mutableStateOf<String?>(null) }
     var searchQuery by rememberSaveable(selectedStream) { mutableStateOf("") }
     val selectedStudent = students.firstOrNull { it.uid == selectedStudentUid }
+    val subjectGroups = remember(attempts, tests) { groupTestAttemptsBySubject(attempts, tests) }
 
     LaunchedEffect(selectedStudent?.uid) {
+        selectedSubject = null
         selectedStudent?.uid?.let(onSelectStudent)
+    }
+    LaunchedEffect(subjectGroups.keys.toList(), selectedSubject) {
+        if (selectedSubject != null && selectedSubject !in subjectGroups) selectedSubject = null
     }
 
     Column(modifier = modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -121,9 +152,10 @@ fun AdminTestResultsScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Test Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(selectedSubject ?: "Test Results", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(
                     text = when {
+                        selectedStudent != null && selectedSubject != null -> "Tests in this subject"
                         selectedStudent != null -> "${selectedStudent.name.ifBlank { selectedStudent.email }} · ${selectedStream.orEmpty()}"
                         selectedStream != null -> "${selectedStream} students"
                         else -> "Choose a stream to begin"
@@ -148,11 +180,15 @@ fun AdminTestResultsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     androidx.compose.material3.TextButton(onClick = {
-                        selectedStudentUid = null
-                        onClearSelectedStudent()
+                        if (selectedSubject != null) {
+                            selectedSubject = null
+                        } else {
+                            selectedStudentUid = null
+                            onClearSelectedStudent()
+                        }
                     }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                        Text("Students")
+                        Text(if (selectedSubject != null) "Subjects" else "Students")
                     }
                     Spacer(Modifier.weight(1f))
                     Text(selectedStudent.status.replaceFirstChar { it.uppercase() }, fontSize = 12.sp)
@@ -170,17 +206,26 @@ fun AdminTestResultsScreen(
                         title = "No test results",
                         description = "This student has not completed any tests yet."
                     )
-                    else -> TestAttemptSections(
-                        attempts = attempts,
-                        tests = tests,
-                        modifier = Modifier.weight(1f)
-                    )
+                    else -> if (selectedSubject == null) {
+                        SubjectCategoryList(
+                            subjectGroups = subjectGroups,
+                            onSubjectSelected = { selectedSubject = it },
+                            modifier = Modifier.weight(1f)
+                        )
+                    } else {
+                        SubjectAttemptList(
+                            attempts = subjectGroups[selectedSubject].orEmpty(),
+                            tests = tests,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
             selectedStream != null -> {
                 androidx.compose.material3.TextButton(onClick = {
                     selectedStream = null
                     selectedStudentUid = null
+                    selectedSubject = null
                     searchQuery = ""
                     onClearSelectedStudent()
                 }) {
@@ -247,6 +292,7 @@ fun AdminTestResultsScreen(
                             modifier = Modifier.fillMaxWidth().clickable {
                                 selectedStream = stream
                                 selectedStudentUid = null
+                                selectedSubject = null
                                 onClearSelectedStudent()
                             },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -268,13 +314,12 @@ fun AdminTestResultsScreen(
 }
 
 @Composable
-private fun TestAttemptSections(
-    attempts: List<TestAttempt>,
-    tests: List<MockTest>,
+private fun SubjectCategoryList(
+    subjectGroups: Map<String, List<TestAttempt>>,
+    onSubjectSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val sections = remember(attempts, tests) { groupTestAttemptsBySubject(attempts, tests) }
-    if (sections.isEmpty()) {
+    if (subjectGroups.isEmpty()) {
         EmptyResults("No test results", "Completed tests will appear here.", modifier)
         return
     }
@@ -283,18 +328,48 @@ private fun TestAttemptSections(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        sections.forEach { (subject, subjectAttempts) ->
-            item(key = "subject-$subject") {
-                Text(
-                    text = subject,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)
-                )
+        items(subjectGroups.entries.toList(), key = { "subject-" + it.key }) { entry ->
+            val subject = entry.key
+            val count = entry.value.size
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable { onSubjectSelected(subject) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (count == 1) "1 test" else count.toString() + " tests",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Default.ChevronRight, contentDescription = "Open " + subject + " results")
+                }
             }
-            items(subjectAttempts, key = { it.id.ifBlank { "${it.testId}-${it.submittedAt.seconds}-${it.submittedAt.nanoseconds}" } }) { attempt ->
-                TestAttemptCard(attempt = attempt, tests = tests)
-            }
+        }
+    }
+}
+
+@Composable
+private fun SubjectAttemptList(
+    attempts: List<TestAttempt>,
+    tests: List<MockTest>,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(
+            attempts,
+            key = { it.id.ifBlank { it.testId + "-" + it.submittedAt.seconds + "-" + it.submittedAt.nanoseconds } }
+        ) { attempt ->
+            TestAttemptCard(attempt = attempt, tests = tests)
         }
     }
 }
@@ -373,7 +448,7 @@ private fun ResultsError(message: String, onRetry: () -> Unit) {
     }
 }
 
-/** Returns subject groups ordered by each group's newest submission. */
+/** Returns subject groups ordered by each group's newest submission, merging case/space variants. */
 fun groupTestAttemptsBySubject(
     attempts: List<TestAttempt>,
     tests: List<MockTest>
@@ -381,17 +456,23 @@ fun groupTestAttemptsBySubject(
     val testsById = tests.associateBy { it.id }
     val sorted = attempts.sortedWith(compareByDescending<TestAttempt> { it.submittedAt.seconds }
         .thenByDescending { it.submittedAt.nanoseconds })
-    return sorted.groupBy { attempt ->
+    val grouped = linkedMapOf<String, MutableList<TestAttempt>>()
+    val displaySubjectByKey = linkedMapOf<String, String>()
+    sorted.forEach { attempt ->
         val attemptSubject = attempt.subject.trim()
         val testSubject = testsById[attempt.testId]?.let { test ->
             test.subject.ifBlank { test.domain }.trim()
         }.orEmpty()
-        when {
+        val subject = when {
             testSubject.isNotBlank() && testSubject.lowercase(Locale.ROOT) !in streamLabels -> testSubject
             attemptSubject.isNotBlank() && attemptSubject.lowercase(Locale.ROOT) !in streamLabels -> attemptSubject
             else -> "General / Uncategorised"
         }
+        val key = subject.trim().lowercase(Locale.ROOT)
+        val displaySubject = displaySubjectByKey.getOrPut(key) { subject.trim() }
+        grouped.getOrPut(displaySubject) { mutableListOf() }.add(attempt)
     }
+    return grouped.mapValues { (_, groupedAttempts) -> groupedAttempts.toList() }
 }
 
 /** Supports attempts written before maxScore was stored. */

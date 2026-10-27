@@ -191,7 +191,11 @@ class LearningViewModel(
     // AUTH ACTION: Login
     fun login(identifier: String, password: String) {
         if (identifier.isBlank() || password.isBlank()) {
-            _authState.value = AuthState.Error("Email/Mobile and Password are required")
+            _authState.value = AuthState.Error("Email and password are required")
+            return
+        }
+        if (!identifier.trim().contains("@")) {
+            _authState.value = AuthState.Error("Enter your email address to sign in")
             return
         }
         viewModelScope.launch {

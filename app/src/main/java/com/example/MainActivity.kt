@@ -763,39 +763,14 @@ fun AuthScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (!isSignUpMode) {
-                    // --- ONE SINGLE LOGIN SCREEN ---
-                    val isEmail = loginIdentifier.contains("@")
-                    
+                    // Email-only sign-in. Phone remains profile/contact information.
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Email or Phone Number",
-                                fontSize = 12.sp,
-                                color = GeoPalette.TextSecondary,
-                                fontWeight = FontWeight.Bold
-                            )
-                            if (loginIdentifier.isNotBlank()) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(
-                                            if (isEmail) GeoPalette.SecondaryContainer else GeoPalette.PrimaryContainer,
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                ) {
-                                    Text(
-                                        text = if (isEmail) "EMAIL DETECTED" else "PHONE DETECTED",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = GeoPalette.DarkText
-                                    )
-                                }
-                            }
-                        }
+                        Text(
+                            text = "Email address",
+                            fontSize = 12.sp,
+                            color = GeoPalette.TextSecondary,
+                            fontWeight = FontWeight.Bold
+                        )
                         
                         val filteredEmails = remember(loginIdentifier, savedEmailsList.size) {
                             if (loginIdentifier.isBlank()) {
@@ -815,10 +790,10 @@ fun AuthScreen(
                                     loginIdentifier = it 
                                     showSuggestions = true
                                 },
-                                placeholder = { Text("Enter email or mobile") },
+                                placeholder = { Text("Enter your email address") },
                                 leadingIcon = { 
                                     Icon(
-                                        imageVector = if (isEmail) Icons.Default.Email else Icons.Default.Phone, 
+                                        imageVector = Icons.Default.Email,
                                         contentDescription = null
                                     ) 
                                 },
@@ -843,6 +818,9 @@ fun AuthScreen(
                                     },
                                 shape = RoundedCornerShape(12.dp),
                                 singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Email
+                                ),
                                 colors = textFieldColors
                             )
 
@@ -920,7 +898,9 @@ fun AuthScreen(
                         onClick = {
                             localErrorMsg = null
                             if (loginIdentifier.isBlank() || loginPassword.isBlank()) {
-                                localErrorMsg = "Please fill in all login fields."
+                                localErrorMsg = "Please enter your email address and password."
+                            } else if (!loginIdentifier.trim().contains("@")) {
+                                localErrorMsg = "Sign in with your email address."
                             } else {
                                 onLogin(loginIdentifier, loginPassword)
                             }
@@ -1562,6 +1542,7 @@ fun StudentApprovedFlow(
                             recordedClasses = streamFilteredRecordedClasses,
                             pyqs = streamFilteredPYQs,
                             mockTests = streamFilteredMockTests,
+                            attempts = testAttempts,
                             initialSubTab = if (screen == "all_materials") "notes" else "videos",
                             onPlayVideo = onPlayVideo,
                             onReadMaterial = onReadMaterial,
@@ -1949,6 +1930,7 @@ fun StudentLearnHubScreen(
     recordedClasses: List<RecordedClass> = emptyList(),
     pyqs: List<PYQ> = emptyList(),
     mockTests: List<MockTest> = emptyList(),
+    attempts: List<TestAttempt> = emptyList(),
     initialSubTab: String = "videos",
     onPlayVideo: (VideoContent) -> Unit,
     onReadMaterial: (StudyMaterial) -> Unit,
@@ -2160,10 +2142,11 @@ fun StudentLearnHubScreen(
 
     fun filterMockTestsForSubject(subj: SubjectConfig): List<MockTest> {
         val streamFiltered = mockTests.filter { t -> t.stream.isBlank() || t.stream.equals("All", true) || t.stream.equals(effectiveStream, true) }
-        return streamFiltered.filter { t ->
+        val subjectTests = streamFiltered.filter { t ->
             subj.keywords.any { kw -> t.title.contains(kw, true) || t.description.contains(kw, true) || t.domain.contains(kw, true) || t.subject.contains(kw, true) } ||
                     t.domain.contains(subj.name, true) || t.subject.contains(subj.name, true) || t.title.contains(subj.name, true)
         }
+        return subjectTests.excludingCompletedAttempts(attempts)
     }
 
     fun filterPYQsForSubject(subj: SubjectConfig): List<PYQ> {
@@ -2780,7 +2763,7 @@ fun StudentLearnHubScreen(
                             }
 
                             "mock_tests" -> {
-                                val tList = remember(subj, searchQuery) {
+                                val tList = remember(subj, searchQuery, mockTests, attempts, effectiveStream) {
                                     filterMockTestsForSubject(subj).filter { t ->
                                         searchQuery.isBlank() || t.title.contains(searchQuery, true) || t.description.contains(searchQuery, true)
                                     }
@@ -5067,8 +5050,8 @@ fun StudentMockTestCard(
     onViewDetails: (() -> Unit)? = null
 ) {
     val totalQ = if (mockTest.questions.isNotEmpty()) mockTest.questions.size else 20
-    val totalMarks = totalQ
-    val durationText = if (mockTest.durationMinutes > 0) "${mockTest.durationMinutes} min" else "20 min"
+    val totalMarks = totalQ * 5
+    val durationText = "${mockTest.effectiveDurationMinutes()} min"
 
     val difficulty = remember(mockTest.contentType, mockTest.type) {
         val typeStr = (mockTest.contentType + " " + mockTest.type).lowercase()
@@ -6241,7 +6224,7 @@ fun StreamFullMockTestCard(
                 }
 
                 // Duration
-                val durationText = if (mockTest.durationMinutes > 0) "${mockTest.durationMinutes} Mins" else "60 Mins"
+                val durationText = "${mockTest.effectiveDurationMinutes()} Mins"
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Icon(Icons.Default.Timer, contentDescription = null, tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
                     Column {
@@ -6428,25 +6411,14 @@ fun StudentFullStreamMockExamsScreen(
         )
     }
 
-    val completedTestIds = remember(attempts) {
-        attempts.mapNotNull { it.testId.takeIf(String::isNotBlank) }.toSet()
-    }
-    val completedTestTitles = remember(attempts) {
-        attempts.filter { it.testId.isBlank() }
-            .mapNotNull { it.testTitle.takeIf(String::isNotBlank) }
-            .toSet()
-    }
-
-    val subjectTestsList = remember(mockTests, activeStream, searchQuery, completedTestIds, completedTestTitles) {
+    val subjectTestsList = remember(mockTests, activeStream, searchQuery, attempts) {
         val rawSubjectTests = mockTests.filter { test ->
             val isSubjectTest = test.contentType != "streamMockTest" && !test.type.lowercase().contains("stream") && !test.type.lowercase().contains("fulllength") && !test.type.lowercase().contains("entrance") && !test.type.lowercase().contains("full")
             val matchesStream = test.stream.isBlank() || test.stream.equals("All", ignoreCase = true) || test.stream.equals(activeStream, ignoreCase = true)
-            val hasBeenCompleted = test.id in completedTestIds ||
-                (test.id.isBlank() && test.title in completedTestTitles)
-            isSubjectTest && matchesStream && !hasBeenCompleted
+            isSubjectTest && matchesStream
         }
 
-        rawSubjectTests.filter { test ->
+        rawSubjectTests.excludingCompletedAttempts(attempts).filter { test ->
             searchQuery.isBlank() ||
                     test.title.contains(searchQuery, ignoreCase = true) ||
                     test.subject.contains(searchQuery, ignoreCase = true) ||
@@ -6454,16 +6426,14 @@ fun StudentFullStreamMockExamsScreen(
         }
     }
 
-    val streamTestsList = remember(mockTests, activeStream, searchQuery, completedTestIds, completedTestTitles) {
+    val streamTestsList = remember(mockTests, activeStream, searchQuery, attempts) {
         val rawStreamTests = mockTests.filter { test ->
             val isStreamTest = test.contentType == "streamMockTest" || test.type.lowercase().contains("stream") || test.type.lowercase().contains("fulllength") || test.type.lowercase().contains("entrance") || test.type.lowercase().contains("full")
             val matchesStream = test.stream.equals(activeStream, ignoreCase = true) || test.stream.equals("All", ignoreCase = true)
-            val hasBeenCompleted = test.id in completedTestIds ||
-                (test.id.isBlank() && test.title in completedTestTitles)
-            isStreamTest && matchesStream && !hasBeenCompleted
+            isStreamTest && matchesStream
         }
 
-        rawStreamTests.filter { test ->
+        rawStreamTests.excludingCompletedAttempts(attempts).filter { test ->
             searchQuery.isBlank() ||
                     test.title.contains(searchQuery, ignoreCase = true) ||
                     test.subject.contains(searchQuery, ignoreCase = true) ||
@@ -6822,7 +6792,7 @@ fun StudentMockTestsList(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Duration:", fontSize = 12.sp, color = GeoPalette.TextSecondary)
-                        val durationText = if (test.durationMinutes > 0) "${test.durationMinutes} Minutes" else "30 Minutes"
+                        val durationText = "${test.effectiveDurationMinutes()} Minutes"
                         Text(durationText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = GeoPalette.TextPrimary)
                     }
 
@@ -7228,7 +7198,7 @@ fun QuizPlayerScreen(
     val currentIdx = state.currentQuestionIndex.coerceIn(0, totalQuestions - 1)
     val currentQuestion = test.questions[currentIdx]
 
-    val totalSeconds = test.durationMinutes * 60
+    val totalSeconds = test.effectiveDurationMinutes() * 60
     fun secondsRemaining(): Int {
         if (state.startTimeMillis <= 0L) return totalSeconds
         val elapsed = ((System.currentTimeMillis() - state.startTimeMillis) / 1000).toInt()
@@ -7239,7 +7209,7 @@ fun QuizPlayerScreen(
     }
 
     LaunchedEffect(key1 = test.id, key2 = state.isSubmitted) {
-        if (test.durationMinutes > 0 && !state.isSubmitted) {
+        if (!state.isSubmitted) {
             while (timeLeftSeconds > 0) {
                 kotlinx.coroutines.delay(1000)
                 timeLeftSeconds = secondsRemaining()
@@ -7253,7 +7223,7 @@ fun QuizPlayerScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (test.durationMinutes > 0) {
+        if (!state.isSubmitted) {
             if (!state.isSubmitted) {
                 val minutes = timeLeftSeconds / 60
                 val seconds = timeLeftSeconds % 60
@@ -7350,7 +7320,7 @@ fun QuizPlayerScreen(
                 color = GeoPalette.TextSecondary
             )
             Text(
-                text = "Score: ${state.score}/$totalQuestions",
+                text = "Score: ${calculateQuizScore(test.questions, state.selectedAnswers).score}/${totalQuestions * 5}",
                 fontWeight = FontWeight.Bold,
                 color = GeoPalette.Primary
             )

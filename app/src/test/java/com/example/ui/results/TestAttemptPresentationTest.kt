@@ -41,6 +41,17 @@ class TestAttemptPresentationTest {
     }
 
     @Test
+    fun mergesSubjectLabelsThatDifferByCaseAndWhitespace() {
+        val newest = TestAttempt(id = "newest", subject = " Physics ", submittedAt = Timestamp(200, 0))
+        val older = TestAttempt(id = "older", subject = "physics", submittedAt = Timestamp(100, 0))
+
+        val groups = groupTestAttemptsBySubject(listOf(older, newest), emptyList())
+
+        assertEquals(setOf("Physics"), groups.keys)
+        assertEquals(listOf("newest", "older"), groups["Physics"]?.map { it.id })
+    }
+
+    @Test
     fun resolvesLegacyStreamSubjectFromTestMetadata() {
         val legacyAttempt = TestAttempt(testId = "test-1", subject = "Science")
         val test = MockTest(id = "test-1", subject = "Physics")

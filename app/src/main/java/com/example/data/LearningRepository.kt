@@ -3,7 +3,6 @@ package com.example.data
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.functions.FirebaseFunctions
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
@@ -220,35 +219,25 @@ class AppLearningRepository : LearningRepository {
             if (_isFirebaseEnabled.value) {
                 val auth = FirebaseAuth.getInstance()
                 val firestore = FirebaseFirestore.getInstance()
-                
-                val isEmailInput = identifier.contains("@")
-                val uid = if (isEmailInput) {
-                    auth.signInWithEmailAndPassword(identifier, password).await().user?.uid
-                } else {
-                    val response = FirebaseFunctions.getInstance()
-                        .getHttpsCallable("loginWithPhone")
-                        .call(mapOf("phone" to identifier.trim(), "password" to password))
-                        .await()
-                    val verifiedEmail = (response.data as? Map<*, *>)?.get("email") as? String
-                        ?: throw Exception("Phone sign-in failed. Check your phone number and password.")
-                    auth.signInWithEmailAndPassword(verifiedEmail, password).await().user?.uid
-                } ?: throw Exception("Sign-in failed")
+
+                val email = identifier.trim()
+                if (!email.contains("@")) {
+                    throw IllegalArgumentException("Enter your email address to sign in.")
+                }
+                val uid = auth.signInWithEmailAndPassword(email, password).await().user?.uid
+                    ?: throw Exception("Sign-in failed")
                 
                 // Fetch the profile
                 val doc = firestore.collection("users").document(uid).get().await()
                 val profile = if (doc.exists()) {
                     doc.toObject(UserProfile::class.java) ?: throw Exception("User profile not found in Firestore")
                 } else {
-                    if (!isEmailInput) {
-                        auth.signOut()
-                        throw Exception("Phone sign-in failed. Check your phone number and password.")
-                    }
                     // Precreate if it was created on the fly
                     val newProfile = UserProfile(
                         uid = uid,
                         name = "Student",
                         phone = "",
-                        email = identifier,
+                        email = email,
                         role = "student",
                         status = "pending"
                     )

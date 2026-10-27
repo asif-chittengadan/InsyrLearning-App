@@ -26,3 +26,23 @@ fun calculateQuizScore(
     val percentage = if (maxScore > 0) score * 100.0 / maxScore else 0.0
     return QuizScore(score, maxScore, correct, wrong, percentage)
 }
+
+/** Keeps the quiz timer consistent with the duration shown on test cards when older tests omit it. */
+fun MockTest.effectiveDurationMinutes(): Int {
+    if (durationMinutes > 0) return durationMinutes
+    val type = "${contentType.trim()} ${type.trim()}".lowercase()
+    return if (listOf("stream", "full", "entrance").any { marker -> type.contains(marker) }) 60 else 20
+}
+
+/** Removes tests that this student has already submitted, including legacy title-only attempts. */
+fun List<MockTest>.excludingCompletedAttempts(attempts: List<TestAttempt>): List<MockTest> {
+    val completedIds = attempts.mapNotNull { it.testId.trim().takeIf(String::isNotEmpty) }.toSet()
+    val completedLegacyTitles = attempts
+        .filter { it.testId.isBlank() }
+        .mapNotNull { it.testTitle.trim().takeIf(String::isNotEmpty)?.lowercase() }
+        .toSet()
+    return filter { test ->
+        test.id.trim() !in completedIds &&
+            !(test.id.isBlank() && test.title.trim().lowercase() in completedLegacyTitles)
+    }
+}
